@@ -846,5 +846,4 @@ fn read_scriptint(item: &[u8], size: usize, minimal: bool) -> Result<i64, ExecEr
 		script::Error::NumericOverflow => ExecError::ScriptIntNumericOverflow,
 		_ => unreachable!("not possible"),
 	})
-	
 }

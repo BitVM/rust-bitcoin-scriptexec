@@ -57,14 +57,8 @@ fn main() {
 				println!("Failed on opcode: {:?}", res.opcode);
 				println!("Error: {:?}", res.error);
 			}
-			println!("Time elapsed: {}ns", start.elapsed().as_nanos());
+			println!("Time elapsed: {}ms", start.elapsed().as_millis());
 			return;
 		}
 	}
 }
-// pub struct ExecutionResult {
-// 	pub success: bool,
-// 	pub error: Option<ExecError>,
-// 	pub opcode: Option<Opcode>,
-// 	pub final_stack: Vec<Vec<u8>>,
-// }

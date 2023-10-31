@@ -12,5 +12,5 @@ path = "src/main.rs"
 
 [dependencies]
 # bitcoin = "0.31.0"
-bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", branch = "dev" }
+bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "1e4ba9f8ab76a7d3e16735cebb1e27092b510a1e" }
 lazy_static = "1.4.0"
