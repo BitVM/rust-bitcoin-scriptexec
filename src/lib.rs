@@ -15,6 +15,9 @@ mod signatures;
 mod error;
 pub use error::{Error, ExecError};
 
+#[cfg(feature = "wasm")]
+mod wasm;
+
 
 /// Maximum number of non-push operations per script
 const MAX_OPS_PER_SCRIPT: usize = 201;
