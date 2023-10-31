@@ -1,0 +1,16 @@
+[package]
+name = "bitcoin-scriptexec"
+version = "0.0.0"
+edition = "2021"
+description = "Bitcoin Script interpreter/executor"
+authors = ["Steven Roose <steven@roose.io>"]
+license = "CC0-1.0"
+
+[[bin]]
+name = "btcexec"
+path = "src/main.rs"
+
+[dependencies]
+# bitcoin = "0.31.0"
+bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", branch = "dev" }
+lazy_static = "1.4.0"
