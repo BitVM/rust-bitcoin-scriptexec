@@ -38,6 +38,9 @@ const VALIDATION_WEIGHT_OFFSET: i64 = 50;
 /// Validation weight per passing signature (Tapscript only, see BIP 342).
 const VALIDATION_WEIGHT_PER_SIGOP_PASSED: i64 = 50;
 
+// Maximum number of public keys per multisig
+const MAX_PUBKEYS_PER_MULTISIG: i64 = 20;
+
 
 /// The stack item representing true.
 fn item_true() -> Vec<u8> {
@@ -279,11 +282,11 @@ impl Exec {
 		unimplemented!();
 	}
 
-	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
+	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
 		unimplemented!();
 	}
 
-	fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
+	fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
 		if !sig.is_empty() {
 			self.validation_weight -= VALIDATION_WEIGHT_PER_SIGOP_PASSED;
 			if self.validation_weight < 0 {
@@ -294,13 +297,23 @@ impl Exec {
 			return Err(ExecError::PubkeyType);
 		} else if pk.len() == 32 {
 			if !sig.is_empty() {
-				self.check_sig_schnorr(sig, pk, self.tx.input_idx);
+				self.check_sig_schnorr(sig, pk)?;
 			}
+		} else {
+			/*
+			 *  New public key version softforks should be defined before this `else` block.
+			 *  Generally, the new code should not do anything but failing the script execution. To avoid
+			 *  consensus bugs, it should not modify any existing values (including `success`).
+			 */
+			// if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE) != 0) {
+			// 	return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
+			// }
+			//TODO(stevenroose) something with discourage stuff
 		}
-		unimplemented!();
+		Ok(())
 	}
 
-	fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
+	fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
 		match self.ctx {
 			ExecCtx::Legacy | ExecCtx::SegwitV0 => self.check_sig_pre_tap(sig, pk),
 			ExecCtx::Tapscript => self.check_sig_tap(sig, pk),
@@ -820,16 +833,40 @@ impl Exec {
 			OP_CHECKSIG | OP_CHECKSIGVERIFY => {
 				let sig = self.stacktop(-2)?.clone();
 				let pk = self.stacktop(-1)?.clone();
-				let res = self.check_sig(&sig, &pk)?;
+				self.check_sig(&sig, &pk)?;
 				self.stack.pop().unwrap();
 				self.stack.pop().unwrap();
-				if op == OP_CHECKSIGVERIFY && !res {
-					return Err(ExecError::CheckSigVerify);
-				}
+				//TODO(stevenroose) this code seems unreachable in core..
+				// if op == OP_CHECKSIGVERIFY && !res {
+				// 	return Err(ExecError::CheckSigVerify);
+				// }
 				if op == OP_CHECKSIG {
-					let item = if res { item_true() } else { item_false() };
-					self.stack.push(item);
+					self.stack.push(item_true());
 				}
+			}
+
+			OP_CHECKSIGADD => {
+				if self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0 {
+					return Err(ExecError::BadOpcode);
+				}
+				let sig = self.stacktop(-3)?.clone();
+				let num = self.stacktop(-2)?;
+				let mut n = read_scriptint(&num, 4, self.opt.require_minimal)?;
+				let pk = self.stacktop(-1)?.clone();
+				self.check_sig(&sig, &pk)?;
+				self.stack.pop().unwrap();
+				self.stack.pop().unwrap();
+				self.stack.pop().unwrap();
+				//TODO(stevenroose) check this together with above
+				let success = true;
+				if success {
+					n += 1;
+				}
+				self.stack.push(script::scriptint_vec(n));
+			}
+
+			OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY => {
+				unimplemented!();
 			}
 
 			_ => unimplemented!(),

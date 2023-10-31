@@ -16,7 +16,6 @@ impl Exec {
 		&mut self,
 		sig: &[u8],
 		pk: &[u8],
-		input_idx: usize,
 	) -> Result<(), ExecError> {
 		assert_eq!(pk.len(), 32);
 
@@ -44,7 +43,7 @@ impl Exec {
 		};
 
 		let sighash = self.sighashcache.taproot_signature_hash(
-			input_idx,
+			self.tx.input_idx,
 			&Prevouts::All(&self.tx.prevouts),
 			None, //TODO(stevenroose) annex
 			None, //TODO(stevenroose) leaf hash op code separator

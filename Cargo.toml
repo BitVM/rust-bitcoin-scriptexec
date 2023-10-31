@@ -38,3 +38,5 @@ console_error_panic_hook = { version = "0.1.7", optional = true }
 # I think we need to mention this for secp256k1-sys to work
 getrandom = { versioin = "0.2", optional = true }
 
+# [patch."git://github.com/stevenroose/rust-bitcoin.git"]
+# bitcoin = { path = "/home/steven/code/rust/bitcoin/bitcoin" }
