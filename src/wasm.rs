@@ -7,6 +7,22 @@ use wasm_bindgen::prelude::*;
 
 use crate::*;
 
+/// Compile ASM into script hex.
+#[wasm_bindgen]
+pub fn script_asm_to_hex(script_asm: &str) -> Result<String, JsValue> {
+	let script = ScriptBuf::parse_asm(script_asm)
+		.map_err(|e| format!("error parsing script: {:?}", e))?;
+	Ok(script.as_bytes().as_hex().to_string())
+}
+
+/// Decode compiled script hex into ASM.
+#[wasm_bindgen]
+pub fn script_hex_to_asm(script_hex: &str) -> Result<String, JsValue> {
+	let script = ScriptBuf::from_hex(script_hex)
+		.map_err(|e| format!("invalid hex: {}", e))?;
+	Ok(script.to_asm_string())
+}
+
 /// Run the given script.
 ///
 /// Fields on the return value are:
