@@ -1,4 +1,6 @@
 
+use std::io;
+use serde_json;
 
 use bitcoin::{ScriptBuf, Transaction};
 use bitcoin::hex::DisplayHex;
@@ -50,13 +52,20 @@ fn main() {
 			println!("Execution ended. Succes: {}", res.success);
 			print!("Final stack: ");
 			for item in res.final_stack {
-				print!("{} ", item.as_hex());
+				if item.is_empty() {
+					print!("<> ");
+				} else {
+					print!("{} ", item.as_hex());
+				}
 			}
 			println!("");
 			if !res.success {
 				println!("Failed on opcode: {:?}", res.opcode);
 				println!("Error: {:?}", res.error);
 			}
+			println!("Stats: ");
+			serde_json::to_writer_pretty(io::stdout(), exec.stats()).unwrap();
+			println!("");
 			println!("Time elapsed: {}ms", start.elapsed().as_millis());
 			return;
 		}

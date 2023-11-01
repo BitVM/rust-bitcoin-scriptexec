@@ -7,6 +7,9 @@ use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
 use bitcoin::opcodes::{self, all::*, Opcode};
 use bitcoin::sighash::SighashCache;
 
+#[cfg(feature = "serde")]
+use serde;
+
 #[macro_use]
 mod macros;
 
@@ -111,6 +114,20 @@ impl ExecutionResult {
 	}
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ExecStats {
+	/// The highest number of stack items occurred during execution.
+	pub max_nb_stack_items: usize,
+	/// The highest total stack size occurred during execution.
+	pub max_stack_size: usize,
+
+	/// The validation weight execution started with.
+	pub start_validation_weight: i64,
+	/// The current remaining validation weight.
+	pub validation_weight: i64,
+}
+
 /// Partial execution of a script.
 pub struct Exec {
 	ctx: ExecCtx,
@@ -124,8 +141,11 @@ pub struct Exec {
 	stack: Vec<Vec<u8>>,
 	altstack: Vec<Vec<u8>>,
 
-	opcode_count: usize,
+	opcode_count: usize, //TODO(stevenroose) once correctly implemented, add to stats
 	validation_weight: i64,
+
+	// runtime statistics
+	stats: ExecStats,
 }
 
 impl Exec {
@@ -138,8 +158,9 @@ impl Exec {
 	) -> Result<Exec, Error> {
 		//TODO(stevenroose) make this more efficient
 		let witness_size = Encodable::consensus_encode(&script_witness, &mut io::sink()).unwrap();
+		let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
 
-		Ok(Exec {
+		let mut ret = Exec {
 			ctx: ctx,
 			result: None,
 
@@ -169,11 +190,23 @@ impl Exec {
 			stack: script_witness.clone(),
 			altstack: Vec::new(),
 			opcode_count: 0,
-			validation_weight: VALIDATION_WEIGHT_OFFSET + witness_size as i64,
+			validation_weight: start_validation_weight,
 
 			opt: opt,
 			tx: tx,
-		})
+
+			stats: ExecStats {
+				start_validation_weight: start_validation_weight,
+				validation_weight: start_validation_weight,
+				..Default::default()
+			},
+		};
+		ret.update_stats();
+		Ok(ret)
+	}
+
+	pub fn stats(&self) -> &ExecStats {
+		&self.stats
 	}
 
 	fn fail(&mut self, err: ExecError) -> Result<(), ExecutionResult> {
@@ -341,7 +374,7 @@ impl Exec {
 			None => {
 				let res = ExecutionResult::from_final_stack(self.stack.clone());
 				self.result = Some(res.clone());
-				Err(res)
+				return Err(res)
 			}
 			Some(Instruction::PushBytes(p)) => {
 				if p.len() > MAX_SCRIPT_ELEMENT_SIZE {
@@ -350,7 +383,6 @@ impl Exec {
 				if exec {
 					self.stack.push(p);
 				}
-				Ok(())
 			}
 			Some(Instruction::Op(op)) => {
 				// Some things we do even when we're not executing.
@@ -383,10 +415,11 @@ impl Exec {
 						return self.failop(err, op);
 					}
 				}
-
-				Ok(())
 			}
 		}
+
+		self.update_stats();
+		Ok(())
 	}
 
 	fn exec_opcode(&mut self, op: Opcode) -> Result<(), ExecError> {
@@ -876,6 +909,16 @@ impl Exec {
 		}
 
 		Ok(())
+	}
+
+	fn update_stats(&mut self) {
+		let stack_items = self.stack.len();
+		self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
+
+		let stack_size = self.stack.iter().map(|i| i.len()).sum();
+		self.stats.max_stack_size = cmp::max(self.stats.max_stack_size, stack_size);
+
+		self.stats.validation_weight = self.validation_weight;
 	}
 }
 

@@ -30,6 +30,11 @@ pub fn script_hex_to_asm(script_hex: &str) -> Result<String, JsValue> {
 /// - final_stack: list of hex stack items after execution
 /// - error: (optional) error that caused execution halt
 /// - last_opcode: (optional) last opcode run before error produced
+/// - stats: execution runtime statistics with following fields:
+///   - max_nb_stack_items
+///   - max_stack_size
+///   - start_validation_weight
+///   - validation_weight
 #[wasm_bindgen]
 pub fn run_script(script_asm: &str) -> Result<JsValue, JsValue> {
 	console_error_panic_hook::set_once();
@@ -68,6 +73,7 @@ pub fn run_script(script_asm: &str) -> Result<JsValue, JsValue> {
 				"final_stack": res.final_stack.iter()
 					.map(|i| i.as_hex().to_string())
 					.collect::<Vec<_>>(),
+				"stats": serde_json::to_value(&exec.stats()).unwrap(),
 			});
 			if !res.success {
 				let obj = ret.as_object_mut().unwrap();
