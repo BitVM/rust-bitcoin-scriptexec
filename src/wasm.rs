@@ -7,10 +7,15 @@ use wasm_bindgen::prelude::*;
 
 use crate::*;
 
+/// Run the given script.
+///
+/// Fields on the return value are:
+/// - success: bool
+/// - final_stack: list of hex stack items after execution
+/// - error: (optional) error that caused execution halt
+/// - last_opcode: (optional) last opcode run before error produced
 #[wasm_bindgen]
-pub fn run_script(
-	script_asm: &str,
-) -> Result<JsValue, JsValue> {
+pub fn run_script(script_asm: &str) -> Result<JsValue, JsValue> {
 	console_error_panic_hook::set_once();
 
 	let script = ScriptBuf::parse_asm(script_asm)
@@ -46,8 +51,7 @@ pub fn run_script(
 				"success": res.success,
 				"final_stack": res.final_stack.iter()
 					.map(|i| i.as_hex().to_string())
-					.collect::<Vec<_>>()
-					.join(" "),
+					.collect::<Vec<_>>(),
 			});
 			if !res.success {
 				let obj = ret.as_object_mut().unwrap();
