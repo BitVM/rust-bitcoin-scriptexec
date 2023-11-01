@@ -315,23 +315,25 @@ impl Exec {
 		unimplemented!();
 	}
 
-	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
+	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
 		unimplemented!();
 	}
 
-	fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
+	fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
 		if !sig.is_empty() {
 			self.validation_weight -= VALIDATION_WEIGHT_PER_SIGOP_PASSED;
 			if self.validation_weight < 0 {
 				return Err(ExecError::TapscriptValidationWeight);
 			}
 		}
+
 		if pk.is_empty() {
-			return Err(ExecError::PubkeyType);
+			Err(ExecError::PubkeyType)
 		} else if pk.len() == 32 {
 			if !sig.is_empty() {
 				self.check_sig_schnorr(sig, pk)?;
 			}
+			Ok(true)
 		} else {
 			/*
 			 *  New public key version softforks should be defined before this `else` block.
@@ -342,11 +344,11 @@ impl Exec {
 			// 	return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
 			// }
 			//TODO(stevenroose) something with discourage stuff
+			Ok(true)
 		}
-		Ok(())
 	}
 
-	fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<(), ExecError> {
+	fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
 		match self.ctx {
 			ExecCtx::Legacy | ExecCtx::SegwitV0 => self.check_sig_pre_tap(sig, pk),
 			ExecCtx::Tapscript => self.check_sig_tap(sig, pk),
@@ -866,15 +868,15 @@ impl Exec {
 			OP_CHECKSIG | OP_CHECKSIGVERIFY => {
 				let sig = self.stacktop(-2)?.clone();
 				let pk = self.stacktop(-1)?.clone();
-				self.check_sig(&sig, &pk)?;
+				let res = self.check_sig(&sig, &pk)?;
 				self.stack.pop().unwrap();
 				self.stack.pop().unwrap();
-				//TODO(stevenroose) this code seems unreachable in core..
-				// if op == OP_CHECKSIGVERIFY && !res {
-				// 	return Err(ExecError::CheckSigVerify);
-				// }
+				if op == OP_CHECKSIGVERIFY && !res {
+					return Err(ExecError::CheckSigVerify);
+				}
 				if op == OP_CHECKSIG {
-					self.stack.push(item_true());
+					let ret = if res { item_true() } else { item_false() };
+					self.stack.push(ret);
 				}
 			}
 
@@ -886,13 +888,11 @@ impl Exec {
 				let num = self.stacktop(-2)?;
 				let mut n = read_scriptint(&num, 4, self.opt.require_minimal)?;
 				let pk = self.stacktop(-1)?.clone();
-				self.check_sig(&sig, &pk)?;
+				let res = self.check_sig(&sig, &pk)?;
 				self.stack.pop().unwrap();
 				self.stack.pop().unwrap();
 				self.stack.pop().unwrap();
-				//TODO(stevenroose) check this together with above
-				let success = true;
-				if success {
+				if res {
 					n += 1;
 				}
 				self.stack.push(script::scriptint_vec(n));
