@@ -231,7 +231,6 @@ impl Exec {
 			ctx: ctx,
 			result: None,
 
-			//TODO(stevenroose) think about miminal
 			sighashcache: SighashCache::new(tx.tx.clone()),
 			script: script,
 			instructions: instructions,
@@ -405,15 +404,6 @@ impl Exec {
 				Ok(false)
 			}
 		} else {
-			/*
-			 *  New public key version softforks should be defined before this `else` block.
-			 *  Generally, the new code should not do anything but failing the script execution. To avoid
-			 *  consensus bugs, it should not modify any existing values (including `success`).
-			 */
-			// if ((flags & SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE) != 0) {
-			// 	return set_error(serror, SCRIPT_ERR_DISCOURAGE_UPGRADABLE_PUBKEYTYPE);
-			// }
-			//TODO(stevenroose) something with discourage stuff
 			Ok(true)
 		}
 	}
@@ -578,7 +568,7 @@ impl Exec {
 			OP_CSV => {}, // otherwise nop
 
 			OP_NOP1 | OP_NOP4 | OP_NOP5 | OP_NOP6 | OP_NOP7 | OP_NOP8 | OP_NOP9 | OP_NOP10 => {
-				//TODO(stevenroose) discourage upgradable nops?
+				// nops
 			}
 
 			OP_IF | OP_NOTIF => {

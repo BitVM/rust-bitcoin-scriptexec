@@ -3,7 +3,7 @@
 use bitcoin::{ScriptBuf, Transaction};
 use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
-use bitcoin::taproot::{TapLeafHash};
+use bitcoin::taproot::TapLeafHash;
 use serde_json::json;
 use wasm_bindgen::prelude::*;
 
@@ -39,11 +39,11 @@ pub fn script_hex_to_asm(script_hex: &str) -> Result<String, JsValue> {
 ///   - start_validation_weight
 ///   - validation_weight
 #[wasm_bindgen]
-pub fn run_script(script_asm: &str) -> Result<JsValue, JsValue> {
+pub fn run_script(script_hex: &str) -> Result<JsValue, JsValue> {
 	console_error_panic_hook::set_once();
 
-	let script = ScriptBuf::parse_asm(script_asm)
-		.map_err(|e| format!("error parsing script: {:?}", e))?;
+	let script = ScriptBuf::from_hex(script_hex)
+		.map_err(|e| format!("invalid hex script: {:?}", e))?;
 
 	let mut exec = Exec::new(
 		ExecCtx::Tapscript,
