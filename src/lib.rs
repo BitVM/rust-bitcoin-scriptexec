@@ -1,5 +1,6 @@
 
 use std::{cmp, io};
+use std::borrow::Cow;
 
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
@@ -333,14 +334,15 @@ impl Exec {
 	}
 
 	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
-		let mut scriptcode = self.script_code.clone().as_bytes().to_vec();
+		//TODO(stevenroose) somehow sigops limit should be checked somewhere
 
 		// Drop the signature in pre-segwit scripts but not segwit scripts
+		let mut scriptcode = Cow::Borrowed(self.script_code.clone().as_bytes());
 		if self.ctx == ExecCtx::Legacy {
 			let mut i = 0;
 			while i < scriptcode.len() - sig.len() {
 				if &scriptcode[i..i+sig.len()] == sig {
-					scriptcode.drain(i..i+sig.len());
+					scriptcode.to_mut().drain(i..i+sig.len());
 				} else {
 					i += 1;
 				}
