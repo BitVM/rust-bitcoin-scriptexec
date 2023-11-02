@@ -58,7 +58,7 @@ fn inner_main() -> Result<(), String> {
 			input_idx: 0,
 			taproot_annex_scriptleaf: Some((TapLeafHash::all_zeros(), None)),
 		},
-		&script,
+		script,
 		vec![],
 	).expect("error creating exec");
 

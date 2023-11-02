@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
 use bitcoin::opcodes::{self, all::*, Opcode};
-use bitcoin::script::{self, Instruction, Instructions, Script};
+use bitcoin::script::{self, Instruction, Instructions, Script, ScriptBuf};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, TapLeafHash};
 use bitcoin::transaction::{self, Transaction, TxOut};
@@ -193,7 +193,7 @@ impl Exec {
 		ctx: ExecCtx,
 		opt: Options,
 		tx: TxTemplate,
-		script: &Script,
+		script: ScriptBuf,
 		script_witness: Vec<Vec<u8>>,
 	) -> Result<Exec, Error> {
 		if ctx == ExecCtx::Tapscript {
@@ -210,7 +210,7 @@ impl Exec {
 
 		// We box alocate the script to get a static Instructions iterator.
 		// We will manually drop this allocation in the ops::Drop impl.
-		let script = Box::leak(script.to_owned().into_boxed_script()) as &'static Script;
+		let script = Box::leak(script.into_boxed_script()) as &'static Script;
 		let instructions = if opt.require_minimal {
 			script.instructions_minimal()
 		} else {

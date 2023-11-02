@@ -2,7 +2,7 @@
 
 use bitcoin::{ScriptBuf, Transaction};
 use bitcoin::hashes::Hash;
-use bitcoin::hex::DisplayHex;
+use bitcoin::hex::{DisplayHex, FromHex};
 use bitcoin::taproot::TapLeafHash;
 use serde_json::json;
 use wasm_bindgen::prelude::*;
@@ -39,11 +39,20 @@ pub fn script_hex_to_asm(script_hex: &str) -> Result<String, JsValue> {
 ///   - start_validation_weight
 ///   - validation_weight
 #[wasm_bindgen]
-pub fn run_script(script_hex: &str) -> Result<JsValue, JsValue> {
+pub fn run_script(script_hex: &str, script_witness: Box<[JsValue]>) -> Result<JsValue, JsValue> {
 	console_error_panic_hook::set_once();
 
 	let script = ScriptBuf::from_hex(script_hex)
 		.map_err(|e| format!("invalid hex script: {:?}", e))?;
+	let witness = {
+		let mut ret = Vec::with_capacity(script_witness.len());
+		for item in script_witness.iter() {
+			let hex = item.as_string().ok_or("script witness must be list of hex strings")?;
+			let bytes = Vec::from_hex(&hex).map_err(|_| "invalid hex in script witness")?;
+			ret.push(bytes);
+		}
+		ret
+	};
 
 	let mut exec = Exec::new(
 		ExecCtx::Tapscript,
@@ -59,8 +68,8 @@ pub fn run_script(script_hex: &str) -> Result<JsValue, JsValue> {
 			input_idx: 0,
 			taproot_annex_scriptleaf: Some((TapLeafHash::all_zeros(), None)),
 		},
-		&script,
-		vec![],
+		script,
+		witness,
 	).map_err(|e| format!("error creating exec: {:?}", e))?;
 
 	
