@@ -1,7 +1,7 @@
 
 
 use bitcoin::secp256k1::{self, XOnlyPublicKey};
-use bitcoin::sighash::{TapSighashType, Prevouts};
+use bitcoin::sighash::{Annex, TapSighashType, Prevouts};
 
 use crate::Exec;
 use crate::error::ExecError;
@@ -42,11 +42,12 @@ impl Exec {
 			(sig, TapSighashType::Default)
 		};
 
+		let (leaf_hash, annex) = self.tx.taproot_annex_scriptleaf.as_ref().unwrap();
 		let sighash = self.sighashcache.taproot_signature_hash(
 			self.tx.input_idx,
 			&Prevouts::All(&self.tx.prevouts),
-			None, //TODO(stevenroose) annex
-			None, //TODO(stevenroose) leaf hash op code separator
+			annex.as_ref().map(|a| Annex::new(a).expect("we checked annex prefix before")),
+			Some((*leaf_hash, self.last_codeseparator_pos.unwrap_or(u32::MAX))),
 			hashtype,
 		).expect("TODO(stevenroose) seems to only happen if prevout index out of bound");
 

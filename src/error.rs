@@ -40,4 +40,5 @@ pub enum ExecError {
 pub enum Error {
 	Exec(ExecError),
 	InvalidScript(script::Error),
+	Other(&'static str),
 }

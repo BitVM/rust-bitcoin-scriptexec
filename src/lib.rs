@@ -6,6 +6,7 @@ use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
 use bitcoin::opcodes::{self, all::*, Opcode};
 use bitcoin::script::{self, Instruction, Instructions, Script};
 use bitcoin::sighash::SighashCache;
+use bitcoin::taproot::{self, TapLeafHash};
 use bitcoin::transaction::{self, Transaction, TxOut};
 
 #[cfg(feature = "serde")]
@@ -94,6 +95,7 @@ pub struct TxTemplate {
 	pub tx: Transaction,
 	pub prevouts: Vec<TxOut>,
 	pub input_idx: usize,
+	pub taproot_annex_scriptleaf: Option<(TapLeafHash, Option<Vec<u8>>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,7 +145,7 @@ pub struct Exec {
 	cond_stack: Vec<bool>,
 	stack: Vec<Vec<u8>>,
 	altstack: Vec<Vec<u8>>,
-	last_codeseparator_pos: Option<usize>,
+	last_codeseparator_pos: Option<u32>,
 	// Initially set to the whole script, but updated when
 	// OP_CODESEPARATOR is encountered.
 	script_code: &'static Script,
@@ -173,6 +175,18 @@ impl Exec {
 		script: &Script,
 		script_witness: Vec<Vec<u8>>,
 	) -> Result<Exec, Error> {
+		if ctx == ExecCtx::Tapscript {
+			if tx.taproot_annex_scriptleaf.is_none() {
+				return Err(Error::Other("missing taproot tx info in tapscript context"));
+			}
+
+			if let Some((_, Some(ref annex))) = tx.taproot_annex_scriptleaf {
+				if annex.get(0) != Some(&taproot::TAPROOT_ANNEX_PREFIX) {
+					return Err(Error::Other("invalid annex: missing prefix"));
+				}
+			}
+		}
+
 		// We box alocate the script to get a static Instructions iterator.
 		// We will manually drop this allocation in the ops::Drop impl.
 		let script = Box::leak(script.to_owned().into_boxed_script()) as &'static Script;
@@ -856,7 +870,7 @@ impl Exec {
 
 			OP_CODESEPARATOR => {
 				// Store this CODESEPARATOR position and update the scriptcode.
-				self.last_codeseparator_pos = Some(self.current_position);
+				self.last_codeseparator_pos = Some(self.current_position as u32);
 				self.script_code = &self.script[self.current_position..];
 			}
 

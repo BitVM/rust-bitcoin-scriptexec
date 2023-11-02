@@ -3,7 +3,9 @@ use std::io;
 use serde_json;
 
 use bitcoin::{ScriptBuf, Transaction};
+use bitcoin::hashes::Hash;
 use bitcoin::hex::DisplayHex;
+use bitcoin::taproot::TapLeafHash;
 
 use bitcoin_scriptexec::*;
 
@@ -35,7 +37,7 @@ fn main() {
 			},
 			prevouts: vec![],
 			input_idx: 0,
-
+			taproot_annex_scriptleaf: Some((TapLeafHash::all_zeros(), None)),
 		},
 		&script,
 		vec![],
