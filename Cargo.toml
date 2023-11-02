@@ -15,21 +15,17 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [features]
-default = [ "cli", "wasm" ]
-cli = [ "serde", "serde_json" ]
-wasm = [
-  "serde",
-  "serde_json",
-  "wasm-bindgen",
-  "serde-wasm-bindgen",
-  "console_error_panic_hook",
-  "getrandom/js",
-]
+default = ["cli", "wasm"]
+cli = ["clap"]
+wasm = ["serde", "serde_json", "wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook", "getrandom/js"]
 
 [dependencies]
 # bitcoin = "0.31.0"
 bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "ad933c20aaf27934a8d85bfa9a21f39641735941" }
 lazy_static = "1.4.0"
+
+# cli
+clap = { version = "4", features = [ "derive" ], optional = true }
 
 # wasm
 serde = { version = "1.0", features = [ "derive" ], optional = true }

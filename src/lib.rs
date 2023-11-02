@@ -265,6 +265,15 @@ impl Exec {
 		self.result.as_ref()
 	}
 
+	pub fn script_position(&self) -> usize {
+		self.script.len() - self.instructions.as_script().len()
+	}
+
+	pub fn remaining_script<'a>(&'a self) -> &'a Script {
+		let pos = self.script_position();
+		&self.script[pos..]
+	}
+
 	pub fn stack(&self) -> &Vec<Vec<u8>> {
 		&self.stack
 	}
@@ -275,10 +284,6 @@ impl Exec {
 
 	pub fn stats(&self) -> &ExecStats {
 		&self.stats
-	}
-
-	pub fn current_position(&self) -> usize {
-		self.current_position
 	}
 
 	///////////////
