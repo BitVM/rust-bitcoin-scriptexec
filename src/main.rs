@@ -1,5 +1,5 @@
 
-use std::{fmt, io};
+use std::fmt;
 use std::path::PathBuf;
 
 use bitcoin::{ScriptBuf, Transaction};

@@ -16,6 +16,9 @@ use serde;
 #[macro_use]
 mod macros;
 
+mod utils;
+use utils::ConditionStack;
+
 mod signatures;
 
 mod error;
@@ -163,7 +166,7 @@ pub struct Exec {
 	script: &'static Script,
 	instructions: Instructions<'static>,
 	current_position: usize,
-	cond_stack: Vec<bool>,
+	cond_stack: ConditionStack,
 	stack: Vec<Vec<u8>>,
 	altstack: Vec<Vec<u8>>,
 	last_codeseparator_pos: Option<u32>,
@@ -235,7 +238,7 @@ impl Exec {
 			script: script,
 			instructions: instructions,
 			current_position: 0,
-			cond_stack: Vec::new(),
+			cond_stack: ConditionStack::new(),
 			//TODO(stevenroose) does this need to be reversed?
 			stack: script_witness.clone(),
 			altstack: Vec::new(),
@@ -451,7 +454,7 @@ impl Exec {
 			Some(Err(_)) => unreachable!("we checked the script beforehand"),
 		};
 
-		let exec = self.cond_stack.iter().all(|v| *v);
+		let exec = self.cond_stack.all_true();
 		match instruction {
 			Instruction::PushBytes(p) => {
 				if p.len() > MAX_SCRIPT_ELEMENT_SIZE {
@@ -500,7 +503,7 @@ impl Exec {
 	}
 
 	fn exec_opcode(&mut self, op: Opcode) -> Result<(), ExecError> {
-		let exec = self.cond_stack.iter().all(|v| *v);
+		let exec = self.cond_stack.all_true();
 
 		// Remember to leave stack intact until all errors have occurred.
 		match op {
@@ -607,15 +610,13 @@ impl Exec {
 			}
 
 			OP_ELSE => {
-				if let Some(top) = self.cond_stack.last_mut() {
-					*top = !*top;
-				} else {
+				if !self.cond_stack.toggle_top() {
 					return Err(ExecError::UnbalancedConditional);
 				}
 			}
 
 			OP_ENDIF => {
-				if self.cond_stack.pop().is_none() {
+				if !self.cond_stack.pop() {
 					return Err(ExecError::UnbalancedConditional);
 				}
 			}
