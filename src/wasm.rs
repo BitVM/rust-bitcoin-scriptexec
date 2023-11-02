@@ -35,6 +35,7 @@ pub fn script_hex_to_asm(script_hex: &str) -> Result<String, JsValue> {
 /// - stats: execution runtime statistics with following fields:
 ///   - max_nb_stack_items
 ///   - max_stack_size
+///   - max_stack_item_size
 ///   - start_validation_weight
 ///   - validation_weight
 #[wasm_bindgen]

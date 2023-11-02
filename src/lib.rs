@@ -141,6 +141,8 @@ pub struct ExecStats {
 	pub max_nb_stack_items: usize,
 	/// The highest total stack size occurred during execution.
 	pub max_stack_size: usize,
+	/// The maximum size of any single stack item occurred during execution.
+	pub max_stack_item_size: usize,
 
 	/// The validation weight execution started with.
 	pub start_validation_weight: i64,
@@ -961,6 +963,9 @@ impl Exec {
 
 		let stack_size = self.stack.iter().map(|i| i.len()).sum();
 		self.stats.max_stack_size = cmp::max(self.stats.max_stack_size, stack_size);
+
+		let max_item = self.stack.iter().map(|i| i.len()).max().unwrap_or(0);
+		self.stats.max_stack_item_size = cmp::max(self.stats.max_stack_item_size, max_item);
 
 		self.stats.validation_weight = self.validation_weight;
 	}
