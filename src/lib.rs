@@ -59,6 +59,18 @@ fn item_false() -> Vec<u8> {
 	vec![]
 }
 
+/// Used to enable experimental script features.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Experimental {
+	/// Enable an experimental implementation of OP_CAT.
+	///
+	/// This implementation is naive and does not enforce any
+	/// additional restrictions on the stack.
+	pub op_cat: bool,
+}
+
+/// Used to fine-tune different variables during execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
 	/// Require data pushes be minimally encoded.
 	pub require_minimal: bool, //TODO(stevenroose) double check all fRequireMinimal usage in Core
@@ -70,6 +82,8 @@ pub struct Options {
 	pub verify_minimal_if: bool,
 	/// Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
 	pub verify_const_scriptcode: bool,
+
+	pub experimental: Experimental,
 }
 
 impl Default for Options {
@@ -80,6 +94,9 @@ impl Default for Options {
 			verify_csv: true,
 			verify_minimal_if: true,
 			verify_const_scriptcode: true,
+			experimental: Experimental {
+				op_cat: true,
+			},
 		}
 	}
 }
@@ -407,7 +424,10 @@ impl Exec {
 				}
 
 				match op {
-					OP_CAT | OP_SUBSTR | OP_LEFT | OP_RIGHT | OP_INVERT | OP_AND | OP_OR | OP_XOR | OP_2MUL
+					OP_CAT if !self.opt.experimental.op_cat => {
+						return self.failop(ExecError::DisabledOpcode, op);
+					}
+					OP_SUBSTR | OP_LEFT | OP_RIGHT | OP_INVERT | OP_AND | OP_OR | OP_XOR | OP_2MUL
 						| OP_2DIV | OP_MUL | OP_DIV | OP_MOD | OP_LSHIFT | OP_RSHIFT =>
 					{
 						return self.failop(ExecError::DisabledOpcode, op);
@@ -748,6 +768,17 @@ impl Exec {
 				self.stack.push(x2.clone());
 				self.stack.push(x1.clone());
 				self.stack.push(x2.clone());
+			}
+
+			OP_CAT if self.opt.experimental.op_cat => {
+				// (x1 x2 -- x1|x2)
+				if self.stack.len() < 2 {
+					return Err(ExecError::InvalidStackOperation);
+				}
+				let x2 = self.stack.pop().unwrap();
+				let x1 = self.stack.pop().unwrap();
+				let ret = x1.into_iter().chain(x2.into_iter()).collect();
+				self.stack.push(ret);
 			}
 
 			OP_SIZE => {
