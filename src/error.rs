@@ -31,6 +31,7 @@ pub enum ExecError {
 	TapscriptCheckMultiSig,
 	PubkeyCount,
 	StackSize,
+	WitnessPubkeyType,
 
 	// new ones for us
 	ScriptIntNumericOverflow,

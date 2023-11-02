@@ -1,16 +1,57 @@
 
 
-use bitcoin::secp256k1::{self, XOnlyPublicKey};
-use bitcoin::sighash::{Annex, TapSighashType, Prevouts};
+use bitcoin::secp256k1::{self, PublicKey, XOnlyPublicKey};
+use bitcoin::sighash::{Annex, EcdsaSighashType, TapSighashType, Prevouts};
 
-use crate::Exec;
-use crate::error::ExecError;
+use crate::*;
 
 lazy_static::lazy_static! {
 	static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
 }
 
 impl Exec {
+	pub fn check_sig_ecdsa(
+		&mut self,
+		sig: &[u8],
+		pk: &[u8],
+		script_code: &[u8],
+	) -> bool {
+		let pk = match PublicKey::from_slice(pk) {
+			Ok(pk) => pk,
+			Err(_) => return false,
+		};
+
+		if sig.is_empty() {
+			return false;
+		}
+
+		let hashtype = *sig.last().unwrap();
+		let sig = match secp256k1::ecdsa::Signature::from_der(&sig[0..sig.len()-1]) {
+			Ok(s) => s,
+			Err(_) => return false,
+		};
+
+		let sighash = if self.ctx == ExecCtx::SegwitV0 {
+			self.sighashcache.p2wsh_signature_hash(
+				self.tx.input_idx,
+				Script::from_bytes(script_code),
+				self.tx.prevouts[self.tx.input_idx].value,
+				//TODO(stevenroose) this might not actually emulate consensus behavior
+				EcdsaSighashType::from_consensus(hashtype as u32),
+			).expect("only happens on prevout index out of bounds").into()
+		} else if self.ctx == ExecCtx::Legacy {
+			self.sighashcache.legacy_signature_hash(
+				self.tx.input_idx,
+				Script::from_bytes(script_code),
+				hashtype as u32,
+			).expect("TODO(stevenroose) seems to only happen if prevout index out of bound").into()
+		} else {
+			unreachable!();
+		};
+
+		SECP.verify_ecdsa(&sighash, &sig, &pk).is_ok()
+	}
+
 	/// [pk] should be passed as 32-bytes.
 	pub fn check_sig_schnorr(
 		&mut self,

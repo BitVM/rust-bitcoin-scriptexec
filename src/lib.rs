@@ -333,7 +333,28 @@ impl Exec {
 	}
 
 	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
-		unimplemented!();
+		let mut scriptcode = self.script_code.clone().as_bytes().to_vec();
+
+		// Drop the signature in pre-segwit scripts but not segwit scripts
+		if self.ctx == ExecCtx::Legacy {
+			let mut i = 0;
+			while i < scriptcode.len() - sig.len() {
+				if &scriptcode[i..i+sig.len()] == sig {
+					scriptcode.drain(i..i+sig.len());
+				} else {
+					i += 1;
+				}
+			}
+		}
+
+		//TODO(stevenroose) the signature and pk encoding checks we use here
+		// might not be exactly identical to Core's
+
+		if self.ctx == ExecCtx::SegwitV0 && pk.len() == 65 {
+			return Err(ExecError::WitnessPubkeyType);
+		}
+
+		Ok(self.check_sig_ecdsa(sig, pk, &scriptcode))
 	}
 
 	fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
@@ -349,8 +370,10 @@ impl Exec {
 		} else if pk.len() == 32 {
 			if !sig.is_empty() {
 				self.check_sig_schnorr(sig, pk)?;
+				Ok(true)
+			} else {
+				Ok(false)
 			}
-			Ok(true)
 		} else {
 			/*
 			 *  New public key version softforks should be defined before this `else` block.
