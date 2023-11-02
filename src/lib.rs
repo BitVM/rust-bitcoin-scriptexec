@@ -142,6 +142,10 @@ pub struct ExecStats {
 	/// The maximum size of any single stack item occurred during execution.
 	pub max_stack_item_size: usize,
 
+	/// The number of opcodes executed, plus an additional one
+	/// per signature in CHECKMULTISIG.
+	pub opcode_count: usize,
+
 	/// The validation weight execution started with.
 	pub start_validation_weight: i64,
 	/// The current remaining validation weight.
@@ -167,7 +171,7 @@ pub struct Exec {
 	// OP_CODESEPARATOR is encountered.
 	script_code: &'static Script,
 
-	opcode_count: usize, //TODO(stevenroose) once correctly implemented, add to stats
+	opcode_count: usize,
 	validation_weight: i64,
 
 	// runtime statistics
@@ -254,30 +258,54 @@ impl Exec {
 		Ok(ret)
 	}
 
+	//////////////////
+	// SOME GETTERS //
+	//////////////////
+
+	pub fn result(&self) -> Option<&ExecutionResult> {
+		self.result.as_ref()
+	}
+
+	pub fn stack(&self) -> &Vec<Vec<u8>> {
+		&self.stack
+	}
+
+	pub fn altstack(&self) -> &Vec<Vec<u8>> {
+		&self.altstack
+	}
+
 	pub fn stats(&self) -> &ExecStats {
 		&self.stats
 	}
 
-	fn fail(&mut self, err: ExecError) -> Result<(), ExecutionResult> {
+	pub fn current_position(&self) -> usize {
+		self.current_position
+	}
+
+	///////////////
+	// UTILITIES //
+	///////////////
+
+	fn fail(&mut self, err: ExecError) -> Result<(), &ExecutionResult> {
 		let res = ExecutionResult {
 			success: false,
 			error: Some(err),
 			opcode: None,
 			final_stack: self.stack.clone(),
 		};
-		self.result = Some(res.clone());
-		Err(res)
+		self.result = Some(res);
+		Err(self.result.as_ref().unwrap())
 	}
 
-	fn failop(&mut self, err: ExecError, op: Opcode) -> Result<(), ExecutionResult> {
+	fn failop(&mut self, err: ExecError, op: Opcode) -> Result<(), &ExecutionResult> {
 		let res = ExecutionResult {
 			success: false,
 			error: Some(err),
 			opcode: Some(op),
 			final_stack: self.stack.clone(),
 		};
-		self.result = Some(res.clone());
-		Err(res)
+		self.result = Some(res);
+		Err(self.result.as_ref().unwrap())
 	}
 
 	fn check_lock_time(&mut self, lock_time: i64) -> bool {
@@ -407,10 +435,14 @@ impl Exec {
 		}).ok_or(ExecError::InvalidStackOperation)
 	}
 
+	///////////////
+	// EXECUTION //
+	///////////////
+
 	/// Returns true when execution is done.
-	pub fn exec_next(&mut self) -> Result<(), ExecutionResult> {
+	pub fn exec_next(&mut self) -> Result<(), &ExecutionResult> {
 		if let Some(ref res) = self.result {
-			return Err(res.clone());
+			return Err(res);
 		}
 
 		self.current_position = self.script.len() - self.instructions.as_script().len();
@@ -418,8 +450,8 @@ impl Exec {
 			Some(Ok(i)) => i,
 			None => {
 				let res = ExecutionResult::from_final_stack(self.stack.clone());
-				self.result = Some(res.clone());
-				return Err(res)
+				self.result = Some(res);
+				return Err(self.result.as_ref().unwrap())
 			}
 			Some(Err(_)) => unreachable!("we checked the script beforehand"),
 		};
@@ -975,6 +1007,10 @@ impl Exec {
 		Ok(())
 	}
 
+	////////////////
+	// STATISTICS //
+	////////////////
+
 	fn update_stats(&mut self) {
 		let stack_items = self.stack.len();
 		self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
@@ -985,6 +1021,7 @@ impl Exec {
 		let max_item = self.stack.iter().map(|i| i.len()).max().unwrap_or(0);
 		self.stats.max_stack_item_size = cmp::max(self.stats.max_stack_item_size, max_item);
 
+		self.stats.opcode_count = self.opcode_count;
 		self.stats.validation_weight = self.validation_weight;
 	}
 }

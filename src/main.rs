@@ -46,6 +46,7 @@ fn main() {
 	
 	loop {
 		if let Err(res) = exec.exec_next() {
+			let res = res.clone();
 			println!("Execution ended. Succes: {}", res.success);
 			print!("Final stack: ");
 			for item in res.final_stack {

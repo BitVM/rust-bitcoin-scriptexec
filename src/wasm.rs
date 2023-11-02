@@ -66,6 +66,7 @@ pub fn run_script(script_asm: &str) -> Result<JsValue, JsValue> {
 	
 	loop {
 		if let Err(res) = exec.exec_next() {
+			let res = res.clone();
 			let mut ret = json!({
 				"success": res.success,
 				"final_stack": res.final_stack.iter()
