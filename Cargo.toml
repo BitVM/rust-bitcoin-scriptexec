@@ -28,7 +28,7 @@ wasm = [
 
 [dependencies]
 # bitcoin = "0.31.0"
-bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "1e4ba9f8ab76a7d3e16735cebb1e27092b510a1e" }
+bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "ad933c20aaf27934a8d85bfa9a21f39641735941" }
 lazy_static = "1.4.0"
 
 # wasm
@@ -39,6 +39,3 @@ serde-wasm-bindgen = { version = "0.6.1", optional = true }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 # I think we need to mention this for secp256k1-sys to work
 getrandom = { versioin = "0.2", optional = true }
-
-# [patch."git://github.com/stevenroose/rust-bitcoin.git"]
-# bitcoin = { path = "/home/steven/code/rust/bitcoin/bitcoin" }

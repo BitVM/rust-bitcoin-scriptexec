@@ -25,12 +25,7 @@ fn main() {
 
 	let mut exec = Exec::new(
 		ExecCtx::Tapscript,
-		Options {
-			require_minimal: true,
-			verify_cltv: true,
-			verify_csv: true,
-			verify_minimal_if: true,
-		},
+		Options::default(),
 		TxTemplate {
 			tx: Transaction {
 				version: bitcoin::transaction::Version::TWO,

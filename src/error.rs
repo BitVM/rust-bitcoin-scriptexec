@@ -30,6 +30,7 @@ pub enum ExecError {
 	SchnorrSig,
 	TapscriptCheckMultiSig,
 	PubkeyCount,
+	StackSize,
 
 	// new ones for us
 	ScriptIntNumericOverflow,

@@ -1,11 +1,12 @@
 
 use std::{cmp, io};
 
-use bitcoin::{script, Script, Transaction, TxOut};
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
 use bitcoin::opcodes::{self, all::*, Opcode};
+use bitcoin::script::{self, Instruction, Instructions, Script};
 use bitcoin::sighash::SighashCache;
+use bitcoin::transaction::{self, Transaction, TxOut};
 
 #[cfg(feature = "serde")]
 use serde;
@@ -27,6 +28,9 @@ const MAX_OPS_PER_SCRIPT: usize = 201;
 
 /// Maximum number of bytes pushable to the stack
 const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
+
+/// Maximum number of values on script interpreter stack
+const MAX_STACK_SIZE: usize = 1000;
 
 /// If this flag is set, CTxIn::nSequence is NOT interpreted as a
 /// relative lock-time.
@@ -63,6 +67,20 @@ pub struct Options {
 	pub verify_csv: bool,
 	/// Verify conditionals are minimally encoded.
 	pub verify_minimal_if: bool,
+	/// Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
+	pub verify_const_scriptcode: bool,
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Options {
+			require_minimal: true,
+			verify_cltv: true,
+			verify_csv: true,
+			verify_minimal_if: true,
+			verify_const_scriptcode: true,
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,23 +88,6 @@ pub enum ExecCtx {
 	Legacy,
 	SegwitV0,
 	Tapscript,
-}
-
-//TODO(stevenroose) try impl execution over borrowed instruction iterator
-pub enum Instruction {
-	PushBytes(Vec<u8>),
-	Op(Opcode)
-}
-
-impl<'a> From<bitcoin::blockdata::script::Instruction<'a>> for Instruction{
-	fn from(i: bitcoin::blockdata::script::Instruction<'a>) -> Instruction {
-		match i {
-			bitcoin::blockdata::script::Instruction::Op(o) => Self::Op(o),
-			bitcoin::blockdata::script::Instruction::PushBytes(b) => {
-				Self::PushBytes(b.as_bytes().to_vec())
-			},
-		}
-	}
 }
 
 pub struct TxTemplate {
@@ -136,16 +137,32 @@ pub struct Exec {
 	result: Option<ExecutionResult>,
 
 	sighashcache: SighashCache<Transaction>,
-	script: Box<dyn Iterator<Item = Instruction>>,
+	script: &'static Script,
+	instructions: Instructions<'static>,
+	current_position: usize,
 	cond_stack: Vec<bool>,
 	stack: Vec<Vec<u8>>,
 	altstack: Vec<Vec<u8>>,
+	last_codeseparator_pos: Option<usize>,
+	// Initially set to the whole script, but updated when
+	// OP_CODESEPARATOR is encountered.
+	script_code: &'static Script,
 
 	opcode_count: usize, //TODO(stevenroose) once correctly implemented, add to stats
 	validation_weight: i64,
 
 	// runtime statistics
 	stats: ExecStats,
+}
+
+impl std::ops::Drop for Exec {
+	fn drop(&mut self) {
+		// we need to safely drop the script we allocated
+		unsafe {
+			let script = core::mem::replace(&mut self.script, Script::from_bytes(&[]));
+			let _ = Box::from_raw(script as *const Script as *mut Script);
+		}
+	}
 }
 
 impl Exec {
@@ -156,6 +173,21 @@ impl Exec {
 		script: &Script,
 		script_witness: Vec<Vec<u8>>,
 	) -> Result<Exec, Error> {
+		// We box alocate the script to get a static Instructions iterator.
+		// We will manually drop this allocation in the ops::Drop impl.
+		let script = Box::leak(script.to_owned().into_boxed_script()) as &'static Script;
+		let instructions = if opt.require_minimal {
+			script.instructions_minimal()
+		} else {
+			script.instructions()
+		};
+
+		// We want to make sure the script is valid so we don't have to throw parsing errors
+		// while executing.
+		if let Some(err) = instructions.clone().find_map(|res| res.err()) {
+			return Err(Error::InvalidScript(err));
+		}
+
 		//TODO(stevenroose) make this more efficient
 		let witness_size = Encodable::consensus_encode(&script_witness, &mut io::sink()).unwrap();
 		let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
@@ -166,31 +198,17 @@ impl Exec {
 
 			//TODO(stevenroose) think about miminal
 			sighashcache: SighashCache::new(tx.tx.clone()),
-			script: {
-				let mut vec = Vec::new();
-				let iter = if opt.require_minimal {
-					script.instructions_minimal()
-				} else {
-					script.instructions()
-				};
-				for r in iter {
-					match r {
-						Ok(i) => vec.push(i.into()),
-						Err(script::Error::NonMinimalPush) => {
-							return Err(Error::Exec(ExecError::MinimalData));
-						}
-						//TODO(stevenroose) might need other special cases
-						Err(e) => return Err(Error::InvalidScript(e)),
-					}
-				}
-				Box::new(vec.into_iter())
-			},
+			script: script,
+			instructions: instructions,
+			current_position: 0,
 			cond_stack: Vec::new(),
 			//TODO(stevenroose) does this need to be reversed?
 			stack: script_witness.clone(),
 			altstack: Vec::new(),
 			opcode_count: 0,
 			validation_weight: start_validation_weight,
+			last_codeseparator_pos: None,
+			script_code: script,
 
 			opt: opt,
 			tx: tx,
@@ -231,88 +249,57 @@ impl Exec {
 		Err(res)
 	}
 
-	fn check_locktime(&mut self, locktime: i64) -> bool {
-		//TODO(stevenroose) finish
-		// // There are two kinds of nLockTime: lock-by-blockheight
-		// // and lock-by-blocktime, distinguished by whether
-		// // nLockTime < LOCKTIME_THRESHOLD.
-		// //
-		// // We want to compare apples to apples, so fail the script
-		// // unless the type of nLockTime being tested is the same as
-		// // the nLockTime in the transaction.
-		// if (!(
-		//	 (txTo->nLockTime <  LOCKTIME_THRESHOLD && nLockTime <  LOCKTIME_THRESHOLD) ||
-		//	 (txTo->nLockTime >= LOCKTIME_THRESHOLD && nLockTime >= LOCKTIME_THRESHOLD)
-		// ))
-		//	 return false;
+	fn check_lock_time(&mut self, lock_time: i64) -> bool {
+		use bitcoin::locktime::absolute::LockTime;
+		let lock_time = match lock_time.try_into() {
+			Ok(l) => LockTime::from_consensus(l),
+			Err(_) => return false,
+		};
 
-		// // Now that we know we're comparing apples-to-apples, the
-		// // comparison is a simple numeric one.
-		// if (nLockTime > (int64_t)txTo->nLockTime)
-		//	 return false;
+		match (lock_time, self.tx.tx.lock_time) {
+			(LockTime::Blocks(h1), LockTime::Blocks(h2)) if h1 > h2 => return false,
+			(LockTime::Seconds(t1), LockTime::Seconds(t2)) if t1 > t2 => return false,
+			(LockTime::Blocks(_), LockTime::Seconds(_)) => return false,
+			(LockTime::Seconds(_), LockTime::Blocks(_)) => return false,
+			_ => {},
+		}
 
-		// // Finally the nLockTime feature can be disabled in IsFinalTx()
-		// // and thus CHECKLOCKTIMEVERIFY bypassed if every txin has
-		// // been finalized by setting nSequence to maxint. The
-		// // transaction would be allowed into the blockchain, making
-		// // the opcode ineffective.
-		// //
-		// // Testing if this vin is not final is sufficient to
-		// // prevent this condition. Alternatively we could test all
-		// // inputs, but testing just this input minimizes the data
-		// // required to prove correct CHECKLOCKTIMEVERIFY execution.
-		// if (CTxIn::SEQUENCE_FINAL == txTo->vin[nIn].nSequence)
-		//	 return false;
+		if self.tx.tx.input[self.tx.input_idx].sequence.is_final() {
+			return false;
+		}
 
-		// return true;
-		unimplemented!();
+		true
 	}
 
 	fn check_sequence(&mut self, sequence: i64) -> bool {
-		//TODO(stevenroose) 
-		// // Relative lock times are supported by comparing the passed
-		// // in operand to the sequence number of the input.
-		// const int64_t txToSequence = (int64_t)txTo->vin[nIn].nSequence;
+		use bitcoin::locktime::relative::LockTime;
 
-		// // Fail if the transaction's version number is not set high
-		// // enough to trigger BIP 68 rules.
-		// if (static_cast<uint32_t>(txTo->nVersion) < 2)
-		//	 return false;
+		// Fail if the transaction's version number is not set high
+		// enough to trigger BIP 68 rules.
+		if self.tx.tx.version < transaction::Version::TWO {
+			return false;
+		}
 
-		// // Sequence numbers with their most significant bit set are not
-		// // consensus constrained. Testing that the transaction's sequence
-		// // number do not have this bit set prevents using this property
-		// // to get around a CHECKSEQUENCEVERIFY check.
-		// if (txToSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG)
-		//	 return false;
+		let input_sequence = self.tx.tx.input[self.tx.input_idx].sequence;
+		let input_lock_time = match input_sequence.to_relative_lock_time() {
+			Some(lt) => lt,
+			None => return false,
+		};
 
-		// // Mask off any bits that do not have consensus-enforced meaning
-		// // before doing the integer comparisons
-		// const uint32_t nLockTimeMask = CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG | CTxIn::SEQUENCE_LOCKTIME_MASK;
-		// const int64_t txToSequenceMasked = txToSequence & nLockTimeMask;
-		// const CScriptNum nSequenceMasked = nSequence & nLockTimeMask;
+		let lock_time = match LockTime::from_num(sequence) {
+			Some(lt) => lt,
+			None => return false,
+		};
 
-		// // There are two kinds of nSequence: lock-by-blockheight
-		// // and lock-by-blocktime, distinguished by whether
-		// // nSequenceMasked < CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG.
-		// //
-		// // We want to compare apples to apples, so fail the script
-		// // unless the type of nSequenceMasked being tested is the same as
-		// // the nSequenceMasked in the transaction.
-		// if (!(
-		//	 (txToSequenceMasked <  CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked <  CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) ||
-		//	 (txToSequenceMasked >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG && nSequenceMasked >= CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG)
-		// )) {
-		//	 return false;
-		// }
+		match (lock_time, input_lock_time) {
+			(LockTime::Blocks(h1), LockTime::Blocks(h2)) if h1 > h2 => return false,
+			(LockTime::Time(t1), LockTime::Time(t2)) if t1 > t2 => return false,
+			(LockTime::Blocks(_), LockTime::Time(_)) => return false,
+			(LockTime::Time(_), LockTime::Blocks(_)) => return false,
+			_ => {},
+		}
 
-		// // Now that we know we're comparing apples-to-apples, the
-		// // comparison is a simple numeric one.
-		// if (nSequenceMasked > txToSequenceMasked)
-		//	 return false;
-
-		// return true;
-		unimplemented!();
+		true
 	}
 
 	fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
@@ -371,22 +358,28 @@ impl Exec {
 			return Err(res.clone());
 		}
 
-		let exec = self.cond_stack.iter().all(|v| *v);
-		match self.script.next() {
+		self.current_position = self.script.len() - self.instructions.as_script().len();
+		let instruction = match self.instructions.next() {
+			Some(Ok(i)) => i,
 			None => {
 				let res = ExecutionResult::from_final_stack(self.stack.clone());
 				self.result = Some(res.clone());
 				return Err(res)
 			}
-			Some(Instruction::PushBytes(p)) => {
+			Some(Err(_)) => unreachable!("we checked the script beforehand"),
+		};
+
+		let exec = self.cond_stack.iter().all(|v| *v);
+		match instruction {
+			Instruction::PushBytes(p) => {
 				if p.len() > MAX_SCRIPT_ELEMENT_SIZE {
 					return self.fail(ExecError::PushSize)
 				}
 				if exec {
-					self.stack.push(p);
+					self.stack.push(p.as_bytes().to_vec());
 				}
 			}
-			Some(Instruction::Op(op)) => {
+			Instruction::Op(op) => {
 				// Some things we do even when we're not executing.
 
 				// Note how OP_RESERVED does not count towards the opcode limit.
@@ -406,8 +399,9 @@ impl Exec {
 						return self.failop(ExecError::DisabledOpcode, op);
 					}
 
-					//TODO(stevenroose) implement OP_CODESEPARATOR
-					OP_CODESEPARATOR => return self.fail(ExecError::OpCodeseparator),
+					OP_CODESEPARATOR if self.opt.verify_const_scriptcode => {
+						return self.fail(ExecError::OpCodeseparator);
+					}
 
 					_ => {},
 				}
@@ -469,7 +463,7 @@ impl Exec {
 					return Err(ExecError::NegativeLocktime);
 				}
 
-				if !self.check_locktime(n) {
+				if !self.check_lock_time(n) {
 					return Err(ExecError::UnsatisfiedLocktime);
 				}
 			}
@@ -861,8 +855,9 @@ impl Exec {
 			}
 
 			OP_CODESEPARATOR => {
-				//TODO(stevenroose) impl
-				unimplemented!();
+				// Store this CODESEPARATOR position and update the scriptcode.
+				self.last_codeseparator_pos = Some(self.current_position);
+				self.script_code = &self.script[self.current_position..];
 			}
 
 			OP_CHECKSIG | OP_CHECKSIGVERIFY => {
@@ -908,6 +903,10 @@ impl Exec {
 			_ => return Err(ExecError::BadOpcode),
 		}
 
+		if self.stack.len() + self.altstack.len() > MAX_STACK_SIZE {
+			return Err(ExecError::StackSize);
+		}
+
 		Ok(())
 	}
 
@@ -924,9 +923,9 @@ impl Exec {
 
 fn read_scriptint(item: &[u8], size: usize, minimal: bool) -> Result<i64, ExecError> {
 	script::read_scriptint_size(item, size, minimal).map_err(|e| match e {
-		script::Error::NonMinimalPush => ExecError::MinimalData,
+		script::ScriptIntError::NonMinimalPush => ExecError::MinimalData,
 		// only possible if size is 4 or lower
-		script::Error::NumericOverflow => ExecError::ScriptIntNumericOverflow,
+		script::ScriptIntError::NumericOverflow => ExecError::ScriptIntNumericOverflow,
 		_ => unreachable!("not possible"),
 	})
 }
