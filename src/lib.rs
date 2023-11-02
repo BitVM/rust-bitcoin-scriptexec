@@ -80,8 +80,6 @@ pub struct Options {
 	pub verify_csv: bool,
 	/// Verify conditionals are minimally encoded.
 	pub verify_minimal_if: bool,
-	/// Making OP_CODESEPARATOR and FindAndDelete fail any non-segwit scripts
-	pub verify_const_scriptcode: bool,
 
 	pub experimental: Experimental,
 }
@@ -93,7 +91,6 @@ impl Default for Options {
 			verify_cltv: true,
 			verify_csv: true,
 			verify_minimal_if: true,
-			verify_const_scriptcode: true,
 			experimental: Experimental {
 				op_cat: true,
 			},
@@ -433,10 +430,6 @@ impl Exec {
 						| OP_2DIV | OP_MUL | OP_DIV | OP_MOD | OP_LSHIFT | OP_RSHIFT =>
 					{
 						return self.failop(ExecError::DisabledOpcode, op);
-					}
-
-					OP_CODESEPARATOR if self.opt.verify_const_scriptcode => {
-						return self.fail(ExecError::OpCodeseparator);
 					}
 
 					_ => {},
