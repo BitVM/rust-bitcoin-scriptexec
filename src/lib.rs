@@ -923,13 +923,16 @@ impl Exec {
 
 			OP_WITHIN => {
 				// (x min max -- out)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
-				let x1 = self.stack.pop().unwrap();
-				let x2 = self.stack.pop().unwrap();
-				let x3 = self.stack.pop().unwrap();
-				let res = x2 <= x1 && x1 < x3;
+				let x1 = self.stacktop(-3)?;
+				let x2 = self.stacktop(-2)?;
+				let x3 = self.stacktop(-1)?;
+				let n1 = read_scriptint(x1, 4, self.opt.require_minimal)?;
+				let n2 = read_scriptint(x2, 4, self.opt.require_minimal)?;
+				let n3 = read_scriptint(x3, 4, self.opt.require_minimal)?;
+				self.stack.pop().unwrap();
+				self.stack.pop().unwrap();
+				self.stack.pop().unwrap();
+				let res = n2 <= n1 && n1 < n3;
 				let item = if res { item_true() } else { item_false() };
 				self.stack.push(item);
 			}
