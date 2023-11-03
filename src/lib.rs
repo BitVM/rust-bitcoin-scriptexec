@@ -633,7 +633,7 @@ impl Exec {
 				}
 			}
 
-			OP_VERIF => {
+			OP_VERIFY => {
 				let top = self.stacktop(-1)?;
 
 				if !script::read_scriptbool(top) {
