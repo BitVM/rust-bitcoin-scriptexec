@@ -139,9 +139,11 @@ impl ExecutionResult {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecStats {
 	/// The highest number of stack items occurred during execution.
+	/// This counts both the stack and the altstack.
 	pub max_nb_stack_items: usize,
-	/// The highest total stack size occurred during execution.
-	pub max_stack_size: usize,
+	/// The highest total stack size in bytes occurred during execution.
+	/// This counts both the stack and the altstack.
+	pub max_stack_bytes: usize,
 	/// The maximum size of any single stack item occurred during execution.
 	pub max_stack_item_size: usize,
 
@@ -1008,12 +1010,14 @@ impl Exec {
 	////////////////
 
 	fn update_stats(&mut self) {
-		let stack_items = self.stack.len();
+		let stack_items = self.stack.len() + self.altstack.len();
 		self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
 
-		let stack_size = self.stack.iter().map(|i| i.len()).sum();
-		self.stats.max_stack_size = cmp::max(self.stats.max_stack_size, stack_size);
+		let stack_size = self.stack.iter().chain(self.altstack.iter()).map(|i| i.len()).sum();
+		self.stats.max_stack_bytes = cmp::max(self.stats.max_stack_bytes, stack_size);
 
+		// NB since every item that ever gets on the altstack first gets on the stack,
+		// we don't have to look at the altstack here
 		let max_item = self.stack.iter().map(|i| i.len()).max().unwrap_or(0);
 		self.stats.max_stack_item_size = cmp::max(self.stats.max_stack_item_size, max_item);
 

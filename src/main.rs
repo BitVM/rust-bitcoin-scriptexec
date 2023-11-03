@@ -42,6 +42,8 @@ fn inner_main() -> Result<(), String> {
 		.expect("error reading script file");
 	let script = ScriptBuf::parse_asm(&script_asm)
 		.expect("error parsing script");
+	println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
+	println!("Script size: {} bytes", script.as_bytes().len());
 
 	let start = std::time::Instant::now();
 	let mut exec = Exec::new(
