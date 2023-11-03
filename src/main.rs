@@ -24,7 +24,7 @@ struct Args {
 struct FmtStack<'a>(&'a Vec<Vec<u8>>);
 impl<'a> fmt::Display for FmtStack<'a> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let mut iter = self.0.iter().peekable();
+		let mut iter = self.0.iter().rev().peekable();
 		while let Some(item) = iter.next() {
 			write!(f, "<{}>", item.as_hex())?;
 			if iter.peek().is_some() {
