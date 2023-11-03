@@ -213,6 +213,22 @@ impl Exec {
 			}
 		}
 
+		// We want to make sure the script is valid so we don't have to throw parsing errors
+		// while executing.
+		let instructions = if opt.require_minimal {
+			script.instructions_minimal()
+		} else {
+			script.instructions()
+		};
+		if let Some(err) = instructions.clone().find_map(|res| res.err()) {
+			return Err(Error::InvalidScript(err));
+		}
+
+		// *****
+		// Make sure there is no more possible exit path after this point!
+		// Otherwise we are leaking memory.
+		// *****
+
 		// We box alocate the script to get a static Instructions iterator.
 		// We will manually drop this allocation in the ops::Drop impl.
 		let script = Box::leak(script.into_boxed_script()) as &'static Script;
@@ -221,12 +237,6 @@ impl Exec {
 		} else {
 			script.instructions()
 		};
-
-		// We want to make sure the script is valid so we don't have to throw parsing errors
-		// while executing.
-		if let Some(err) = instructions.clone().find_map(|res| res.err()) {
-			return Err(Error::InvalidScript(err));
-		}
 
 		//TODO(stevenroose) make this more efficient
 		let witness_size = Encodable::consensus_encode(&script_witness, &mut io::sink()).unwrap();
