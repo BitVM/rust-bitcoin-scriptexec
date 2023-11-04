@@ -21,7 +21,7 @@ wasm = ["serde", "serde_json", "wasm-bindgen", "serde-wasm-bindgen", "console_er
 
 [dependencies]
 # bitcoin = "0.31.0"
-bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "ad933c20aaf27934a8d85bfa9a21f39641735941" }
+bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "639d552ef0080a68b1ea883298aa30c450d9ff0d" }
 lazy_static = "1.4.0"
 
 # cli
