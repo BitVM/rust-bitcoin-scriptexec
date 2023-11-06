@@ -157,6 +157,52 @@ pub struct ExecStats {
 	pub validation_weight: i64,
 }
 
+/// An extention trait on [Vec<u8>] with some utility methods we
+/// want for our stacks.
+trait StackExt: AsRef<Vec<Vec<u8>>> + AsMut<Vec<Vec<u8>>> {
+	/// Get items from the top of the stack.
+	///
+	/// F.e. with [offset] equal to -1, this returns the last element.
+	fn top(&self, offset: isize) -> Result<&Vec<u8>, ExecError> {
+		debug_assert!(offset < 0, "offsets should be < 0");
+		self.as_ref().len().checked_sub(offset.abs() as usize).and_then(|i| {
+			self.as_ref().iter().nth(i)
+		}).ok_or(ExecError::InvalidStackOperation)
+	}
+
+	/// Get items from the top of the stack and try to interpret as a ScriptInt.
+	///
+	/// F.e. with [offset] equal to -1, this returns the last element.
+	fn topnum(&self, offset: isize, require_minimal: bool) -> Result<i64, ExecError> {
+		let x = self.top(offset)?;
+		Ok(read_scriptint(x, 4, require_minimal)?)
+	}
+
+	/// Push the number on the stack, encoded as a scriptint.
+	fn pushnum(&mut self, num: i64) {
+		self.as_mut().push(script::scriptint_vec(num));
+	}
+
+	/// Ensure there are at least [min_nb_items] on the stack, otherwise
+	/// return error.
+	fn needn(&self, min_nb_items: usize) -> Result<(), ExecError> {
+		if self.as_ref().len() < min_nb_items {
+			Err(ExecError::InvalidStackOperation)
+		} else {
+			Ok(())
+		}
+	}
+
+	/// Pop [n] items from the end of the stack.
+	fn popn(&mut self, n: usize) -> Result<(), ExecError> {
+		for _ in 0..n {
+			self.as_mut().pop().ok_or(ExecError::InvalidStackOperation)?;
+		}
+		Ok(())
+	}
+}
+impl StackExt for Vec<Vec<u8>> {}
+
 /// Partial execution of a script.
 pub struct Exec {
 	ctx: ExecCtx,
@@ -435,16 +481,6 @@ impl Exec {
 		}
 	}
 
-	/// Get items from the top of the stack.
-	///
-	/// F.e. with [offset] equal to -1, this returns the last element.
-	fn stacktop(&self, offset: isize) -> Result<&Vec<u8>, ExecError> {
-		debug_assert!(offset < 0, "offsets should be < 0");
-		self.stack.len().checked_sub(offset.abs() as usize).and_then(|i| {
-			self.stack.iter().nth(i)
-		}).ok_or(ExecError::InvalidStackOperation)
-	}
-
 	///////////////
 	// EXECUTION //
 	///////////////
@@ -528,7 +564,7 @@ impl Exec {
 			OP_PUSHNUM_15 | OP_PUSHNUM_16 =>
 			{
 				let n = op.to_u8() - (OP_PUSHNUM_1.to_u8() - 1);
-				self.stack.push(script::scriptint_vec(n as i64));
+				self.stack.pushnum(n as i64);
 			}
 
 			//
@@ -537,7 +573,7 @@ impl Exec {
 			OP_NOP => {},
 
 			OP_CLTV if self.opt.verify_cltv => {
-				let top = self.stacktop(-1)?;
+				let top = self.stack.top(-1)?;
 
 				// Note that elsewhere numeric opcodes are limited to
 				// operands in the range -2**31+1 to 2**31-1, however it is
@@ -566,7 +602,7 @@ impl Exec {
 			OP_CLTV => {}, // otherwise nop
 
 			OP_CSV if self.opt.verify_csv => {
-				let top = self.stacktop(-1)?;
+				let top = self.stack.top(-1)?;
 
 				// nSequence, like nLockTime, is a 32-bit unsigned integer
 				// field. See the comment in CHECKLOCKTIMEVERIFY regarding
@@ -593,7 +629,7 @@ impl Exec {
 
 			OP_IF | OP_NOTIF => {
 				if exec {
-					let top = self.stacktop(-1)?;
+					let top = self.stack.top(-1)?;
 
 					// Tapscript requires minimal IF/NOTIF inputs as a consensus rule.
 					if self.ctx == ExecCtx::Tapscript {
@@ -614,7 +650,7 @@ impl Exec {
 					} else {
 						script::read_scriptbool(top)
 					};
-					self.stack.pop();
+					self.stack.pop().unwrap();
 					self.cond_stack.push(b);
 				} else {
 					self.cond_stack.push(false);
@@ -634,12 +670,12 @@ impl Exec {
 			}
 
 			OP_VERIFY => {
-				let top = self.stacktop(-1)?;
+				let top = self.stack.top(-1)?;
 
 				if !script::read_scriptbool(top) {
 					return Err(ExecError::Verify);
 				} else {
-					self.stack.pop();
+					self.stack.pop().unwrap();
 				}
 			}
 
@@ -660,32 +696,23 @@ impl Exec {
 
 			OP_2DROP => {
 				// (x1 x2 -- )
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
-				self.stack.pop();
-				self.stack.pop();
+				self.stack.needn(2)?;
+				self.stack.popn(2).unwrap();
 			}
 
 			OP_2DUP => {
 				// (x1 x2 -- x1 x2 x1 x2)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
-				let x1 = self.stacktop(-2).unwrap().clone();
-				let x2 = self.stacktop(-1).unwrap().clone();
+				let x1 = self.stack.top(-2)?.clone();
+				let x2 = self.stack.top(-1)?.clone();
 				self.stack.push(x1);
 				self.stack.push(x2);
 			}
 
 			OP_3DUP => {
 				// (x1 x2 x3 -- x1 x2 x3 x1 x2 x3)
-				if self.stack.len() < 3 {
-					return Err(ExecError::InvalidStackOperation);
-				}
-				let x1 = self.stacktop(-3).unwrap().clone();
-				let x2 = self.stacktop(-2).unwrap().clone();
-				let x3 = self.stacktop(-1).unwrap().clone();
+				let x1 = self.stack.top(-3)?.clone();
+				let x2 = self.stack.top(-2)?.clone();
+				let x3 = self.stack.top(-1)?.clone();
 				self.stack.push(x1);
 				self.stack.push(x2);
 				self.stack.push(x3);
@@ -693,20 +720,16 @@ impl Exec {
 
 			OP_2OVER => {
 				// (x1 x2 x3 x4 -- x1 x2 x3 x4 x1 x2)
-				if self.stack.len() < 4 {
-					return Err(ExecError::InvalidStackOperation);
-				}
-				let x1 = self.stacktop(-4).unwrap().clone();
-				let x2 = self.stacktop(-3).unwrap().clone();
+				self.stack.needn(4)?;
+				let x1 = self.stack.top(-4).unwrap().clone();
+				let x2 = self.stack.top(-3).unwrap().clone();
 				self.stack.push(x1);
 				self.stack.push(x2);
 			}
 
 			OP_2ROT => {
 				// (x1 x2 x3 x4 x5 x6 -- x3 x4 x5 x6 x1 x2)
-				if self.stack.len() < 6 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(6)?;
 				let x6 = self.stack.pop().unwrap();
 				let x5 = self.stack.pop().unwrap();
 				let x4 = self.stack.pop().unwrap();
@@ -723,9 +746,7 @@ impl Exec {
 
 			OP_2SWAP => {
 				// (x1 x2 x3 x4 -- x3 x4 x1 x2)
-				if self.stack.len() < 4 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(4)?;
 				let x4 = self.stack.pop().unwrap();
 				let x3 = self.stack.pop().unwrap();
 				let x2 = self.stack.pop().unwrap();
@@ -738,7 +759,7 @@ impl Exec {
 
 			OP_IFDUP => {
 				// (x - 0 | x x)
-				let top = self.stacktop(-1)?;
+				let top = self.stack.top(-1)?;
 				if script::read_scriptbool(top) {
 					self.stack.push(top.clone());
 				}
@@ -746,7 +767,7 @@ impl Exec {
 
 			OP_DEPTH => {
 				// -- stacksize
-				self.stack.push(script::scriptint_vec(self.stack.len() as i64));
+				self.stack.pushnum(self.stack.len() as i64);
 			}
 
 			OP_DROP => {
@@ -758,15 +779,13 @@ impl Exec {
 
 			OP_DUP => {
 				// (x -- x x)
-				let top = self.stacktop(-1)?;
+				let top = self.stack.top(-1)?;
 				self.stack.push(top.clone());
 			}
 
 			OP_NIP => {
 				// (x1 x2 -- x2)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				self.stack.pop().unwrap();
 				self.stack.push(x2);
@@ -774,31 +793,28 @@ impl Exec {
 
 			OP_OVER => {
 				// (x1 x2 -- x1 x2 x1)
-				let under_top = self.stacktop(-2)?;
+				let under_top = self.stack.top(-2)?;
 				self.stack.push(under_top.clone());
 			}
 
 			OP_PICK | OP_ROLL => {
 				// (xn ... x2 x1 x0 n - xn ... x2 x1 x0 xn)
 				// (xn ... x2 x1 x0 n - ... x2 x1 x0 xn)
-				let top = self.stacktop(-1)?;
-				let n = read_scriptint(top, 4, self.opt.require_minimal)?;
-				if n < 0 || n >= self.stack.len() as i64 {
+				let x = self.stack.topnum(-1, self.opt.require_minimal)?;
+				if x < 0 || x >= self.stack.len() as i64 {
 					return Err(ExecError::InvalidStackOperation);
 				}
 				self.stack.pop().unwrap();
-				let elem = self.stacktop(- n as isize - 1).unwrap().clone();
+				let elem = self.stack.top(- x as isize - 1).unwrap().clone();
 				if op == OP_ROLL {
-					self.stack.remove(self.stack.len() - n as usize - 1);
+					self.stack.remove(self.stack.len() - x as usize - 1);
 				}
 				self.stack.push(elem);
 			}
 
 			OP_ROT => {
 				// (x1 x2 x3 -- x2 x3 x1)
-				if self.stack.len() < 3 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(3)?;
 				let x3 = self.stack.pop().unwrap();
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
@@ -809,9 +825,7 @@ impl Exec {
 
 			OP_SWAP => {
 				// (x1 x2 -- x2 x1)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
 				self.stack.push(x2.clone());
@@ -820,9 +834,7 @@ impl Exec {
 
 			OP_TUCK => {
 				// (x1 x2 -- x2 x1 x2)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
 				self.stack.push(x2.clone());
@@ -832,9 +844,7 @@ impl Exec {
 
 			OP_CAT if self.opt.experimental.op_cat => {
 				// (x1 x2 -- x1|x2)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
 				let ret = x1.into_iter().chain(x2.into_iter()).collect();
@@ -843,8 +853,8 @@ impl Exec {
 
 			OP_SIZE => {
 				// (in -- in size)
-				let top = self.stacktop(-1)?;
-				self.stack.push(script::scriptint_vec(top.len() as i64));
+				let top = self.stack.top(-1)?;
+				self.stack.pushnum(top.len() as i64);
 			}
 
 			//
@@ -852,9 +862,7 @@ impl Exec {
 
 			OP_EQUAL | OP_EQUALVERIFY => {
 				// (x1 x2 - bool)
-				if self.stack.len() < 2 {
-					return Err(ExecError::InvalidStackOperation);
-				}
+				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
 				let equal = x1 == x2;
@@ -872,67 +880,58 @@ impl Exec {
 
 			OP_1ADD | OP_1SUB | OP_NEGATE | OP_ABS | OP_NOT | OP_0NOTEQUAL => {
 				// (in -- out)
-				let top = self.stacktop(-1)?;
-				let n = read_scriptint(top, 4, self.opt.require_minimal)?;
+				let x = self.stack.topnum(-1, self.opt.require_minimal)?;
 				let res = match op {
-					OP_1ADD => n.checked_add(1).ok_or(ExecError::ScriptIntNumericOverflow)?,
-					OP_1SUB => n.checked_sub(1).ok_or(ExecError::ScriptIntNumericOverflow)?,
-					OP_NEGATE => n.checked_neg().ok_or(ExecError::ScriptIntNumericOverflow)?,
-					OP_ABS => n.abs(),
-					OP_NOT => (n == 0) as i64,
-					OP_0NOTEQUAL => (n != 0) as i64,
+					OP_1ADD => x.checked_add(1).ok_or(ExecError::ScriptIntNumericOverflow)?,
+					OP_1SUB => x.checked_sub(1).ok_or(ExecError::ScriptIntNumericOverflow)?,
+					OP_NEGATE => x.checked_neg().ok_or(ExecError::ScriptIntNumericOverflow)?,
+					OP_ABS => x.abs(),
+					OP_NOT => (x == 0) as i64,
+					OP_0NOTEQUAL => (x != 0) as i64,
 					_ => unreachable!(),
 				};
 				self.stack.pop().unwrap();
-				self.stack.push(script::scriptint_vec(res));
+				self.stack.pushnum(res);
 			}
 
 			OP_ADD | OP_SUB | OP_BOOLAND | OP_BOOLOR | OP_NUMEQUAL | OP_NUMEQUALVERIFY |
 			OP_NUMNOTEQUAL | OP_LESSTHAN | OP_GREATERTHAN | OP_LESSTHANOREQUAL |
 			OP_GREATERTHANOREQUAL | OP_MIN | OP_MAX => {
 				// (x1 x2 -- out)
-				let x1 = self.stacktop(-2)?;
-				let x2 = self.stacktop(-1)?;
-				let n1 = read_scriptint(x1, 4, self.opt.require_minimal)?;
-				let n2 = read_scriptint(x2, 4, self.opt.require_minimal)?;
+				let x1 = self.stack.topnum(-2, self.opt.require_minimal)?;
+				let x2 = self.stack.topnum(-1, self.opt.require_minimal)?;
 				let res = match op {
-					OP_ADD => n1.checked_add(n2).ok_or(ExecError::ScriptIntNumericOverflow)?,
-					OP_SUB => n1.checked_sub(n2).ok_or(ExecError::ScriptIntNumericOverflow)?,
-					OP_BOOLAND => (n1 != 0 && n2 != 0) as i64,
-					OP_BOOLOR => (n1 != 0 || n2 != 0) as i64,
-					OP_NUMEQUAL => (n1 == n2) as i64,
-					OP_NUMEQUALVERIFY => (n1 == n2) as i64,
-					OP_NUMNOTEQUAL => (n1 != n2) as i64,
-					OP_LESSTHAN => (n1 < n2) as i64,
-					OP_GREATERTHAN => (n1 > n2) as i64,
-					OP_LESSTHANOREQUAL => (n1 <= n2) as i64,
-					OP_GREATERTHANOREQUAL => (n1 >= n2) as i64,
-					OP_MIN => cmp::min(n1, n2),
-					OP_MAX => cmp::max(n1, n2),
+					OP_ADD => x1.checked_add(x2).ok_or(ExecError::ScriptIntNumericOverflow)?,
+					OP_SUB => x1.checked_sub(x2).ok_or(ExecError::ScriptIntNumericOverflow)?,
+					OP_BOOLAND => (x1 != 0 && x2 != 0) as i64,
+					OP_BOOLOR => (x1 != 0 || x2 != 0) as i64,
+					OP_NUMEQUAL => (x1 == x2) as i64,
+					OP_NUMEQUALVERIFY => (x1 == x2) as i64,
+					OP_NUMNOTEQUAL => (x1 != x2) as i64,
+					OP_LESSTHAN => (x1 < x2) as i64,
+					OP_GREATERTHAN => (x1 > x2) as i64,
+					OP_LESSTHANOREQUAL => (x1 <= x2) as i64,
+					OP_GREATERTHANOREQUAL => (x1 >= x2) as i64,
+					OP_MIN => cmp::min(x1, x2),
+					OP_MAX => cmp::max(x1, x2),
 					_ => unreachable!(),
 				};
 				if op == OP_NUMEQUALVERIFY && res == 0 {
 					return Err(ExecError::NumEqualVerify);
 				}
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
+				self.stack.popn(2).unwrap();
 				if op != OP_NUMEQUALVERIFY {
-					self.stack.push(script::scriptint_vec(res));
+					self.stack.pushnum(res);
 				}
 			}
 
 			OP_WITHIN => {
 				// (x min max -- out)
-				let x1 = self.stacktop(-3)?;
-				let x2 = self.stacktop(-2)?;
-				let x3 = self.stacktop(-1)?;
-				let n1 = read_scriptint(x1, 4, self.opt.require_minimal)?;
-				let n2 = read_scriptint(x2, 4, self.opt.require_minimal)?;
-				let n3 = read_scriptint(x3, 4, self.opt.require_minimal)?;
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
-				let res = n2 <= n1 && n1 < n3;
+				let x1 = self.stack.topnum(-3, self.opt.require_minimal)?;
+				let x2 = self.stack.topnum(-2, self.opt.require_minimal)?;
+				let x3 = self.stack.topnum(-1, self.opt.require_minimal)?;
+				self.stack.popn(3).unwrap();
+				let res = x2 <= x1 && x1 < x3;
 				let item = if res { item_true() } else { item_false() };
 				self.stack.push(item);
 			}
@@ -969,11 +968,10 @@ impl Exec {
 			}
 
 			OP_CHECKSIG | OP_CHECKSIGVERIFY => {
-				let sig = self.stacktop(-2)?.clone();
-				let pk = self.stacktop(-1)?.clone();
+				let sig = self.stack.top(-2)?.clone();
+				let pk = self.stack.top(-1)?.clone();
 				let res = self.check_sig(&sig, &pk)?;
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
+				self.stack.popn(2).unwrap();
 				if op == OP_CHECKSIGVERIFY && !res {
 					return Err(ExecError::CheckSigVerify);
 				}
@@ -987,18 +985,15 @@ impl Exec {
 				if self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0 {
 					return Err(ExecError::BadOpcode);
 				}
-				let sig = self.stacktop(-3)?.clone();
-				let num = self.stacktop(-2)?;
-				let mut n = read_scriptint(&num, 4, self.opt.require_minimal)?;
-				let pk = self.stacktop(-1)?.clone();
+				let sig = self.stack.top(-3)?.clone();
+				let mut n = self.stack.topnum(-2, self.opt.require_minimal)?;
+				let pk = self.stack.top(-1)?.clone();
 				let res = self.check_sig(&sig, &pk)?;
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
-				self.stack.pop().unwrap();
+				self.stack.popn(3).unwrap();
 				if res {
 					n += 1;
 				}
-				self.stack.push(script::scriptint_vec(n));
+				self.stack.pushnum(n);
 			}
 
 			OP_CHECKMULTISIG | OP_CHECKMULTISIGVERIFY => {
