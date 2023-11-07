@@ -24,6 +24,8 @@ mod signatures;
 mod error;
 pub use error::{Error, ExecError};
 
+#[cfg(feature = "json")]
+pub mod json;
 #[cfg(feature = "wasm")]
 mod wasm;
 

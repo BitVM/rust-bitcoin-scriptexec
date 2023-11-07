@@ -16,8 +16,9 @@ required-features = ["cli"]
 
 [features]
 default = ["cli", "wasm"]
-cli = ["clap"]
-wasm = ["serde", "serde_json", "wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook", "getrandom/js"]
+json = ["serde", "serde_json", "bitcoin/serde"]
+cli = ["json", "clap"]
+wasm = ["json", "wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook", "getrandom/js"]
 
 [dependencies]
 # bitcoin = "0.31.0"

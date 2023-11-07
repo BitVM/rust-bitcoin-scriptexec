@@ -1,5 +1,6 @@
 
-use std::fmt;
+use std::{fmt};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use bitcoin::{ScriptBuf, Transaction};
@@ -19,8 +20,12 @@ struct Args {
 	/// Whether to print debug info
 	#[arg(long)]
 	debug: bool,
+	/// Whether to output result in JSON.
+	#[arg(long)]
+	json: bool,
 }
 
+/// A wrapper for the stack types to print them better.
 struct FmtStack<'a>(&'a Vec<Vec<u8>>);
 impl<'a> fmt::Display for FmtStack<'a> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -66,13 +71,26 @@ fn inner_main() -> Result<(), String> {
 
 	
 	const SEP: &str = "--------------------------------------------------";
+
+	let mut out = io::stdout();
 	println!("{}", SEP);
 	loop {
 		if args.debug {
-			println!("Remaining script: {}", exec.remaining_script().to_asm_string());
-			println!("Stack: {}", FmtStack(exec.stack()));
-			println!("AltStack: {}", FmtStack(exec.altstack()));
-			println!("{}", SEP);
+			if args.json {
+				let step = json::RunStep {
+					remaining_script: exec.remaining_script(),
+					stack: exec.stack(),
+					altstack: exec.altstack(),
+					stats: Some(exec.stats()),
+				};
+				serde_json::to_writer(&out, &step).expect("I/O error");
+				out.write_all(&['\n' as u8]).expect("I/O error");
+			} else {
+				println!("Remaining script: {}", exec.remaining_script().to_asm_string());
+				println!("Stack: {}", FmtStack(exec.stack()));
+				println!("AltStack: {}", FmtStack(exec.altstack()));
+				println!("{}", SEP);
+			}
 		}
 
 		if exec.exec_next().is_err() {
@@ -81,15 +99,26 @@ fn inner_main() -> Result<(), String> {
 	}
 
 	let res = exec.result().unwrap().clone();
-	println!("Execution ended. Succes: {}", res.success);
-	print!("Final stack: {}", FmtStack(&res.final_stack));
-	println!("");
-	if !res.success {
-		println!("Failed on opcode: {:?}", res.opcode);
-		println!("Error: {:?}", res.error);
+	if args.json {
+		let ret = json::RunResult {
+			success: res.success,
+			error: res.error.map(|e| format!("{:?}", e)), //TODO(stevenroose) fmt::Display
+			opcode: res.opcode,
+			final_stack: &res.final_stack,
+			stats: Some(exec.stats()),
+		};
+		serde_json::to_writer(&out, &ret).expect("I/O error");
+	} else {
+		println!("Execution ended. Succes: {}", res.success);
+		print!("Final stack: {}", FmtStack(&res.final_stack));
+		println!("");
+		if !res.success {
+			println!("Failed on opcode: {:?}", res.opcode);
+			println!("Error: {:?}", res.error);
+		}
+		println!("Stats:\n{:#?}", exec.stats());
+		println!("Time elapsed: {}ms", start.elapsed().as_millis());
 	}
-	println!("Stats:\n{:#?}", exec.stats());
-	println!("Time elapsed: {}ms", start.elapsed().as_millis());
 	return Ok(());
 }
 
