@@ -127,9 +127,28 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-	fn from_final_stack(final_stack: Vec<Vec<u8>>) -> ExecutionResult {
+	fn from_final_stack(ctx: ExecCtx, final_stack: Vec<Vec<u8>>) -> ExecutionResult {
 		ExecutionResult {
-			success: final_stack == vec![vec![opcodes::OP_TRUE.to_u8()]],
+			success: match ctx {
+				ExecCtx::Legacy => {
+					if final_stack.is_empty() {
+						false
+					} else if !script::read_scriptbool(final_stack.last().unwrap()) {
+						false
+					} else {
+						true
+					}
+				}
+				ExecCtx::SegwitV0 | ExecCtx::Tapscript => {
+					if final_stack.len() != 1 {
+						false
+					} else if !script::read_scriptbool(final_stack.last().unwrap()) {
+						false
+					} else {
+						true
+					}
+				}
+			},
 			final_stack: final_stack,
 			error: None,
 			opcode: None,
@@ -497,7 +516,7 @@ impl Exec {
 		let instruction = match self.instructions.next() {
 			Some(Ok(i)) => i,
 			None => {
-				let res = ExecutionResult::from_final_stack(self.stack.clone());
+				let res = ExecutionResult::from_final_stack(self.ctx, self.stack.clone());
 				self.result = Some(res);
 				return Err(self.result.as_ref().unwrap())
 			}
