@@ -22,7 +22,7 @@ wasm = ["json", "wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook"
 
 [dependencies]
 # bitcoin = "0.31.0"
-bitcoin = { git = "https://github.com/stevenroose/rust-bitcoin", rev = "639d552ef0080a68b1ea883298aa30c450d9ff0d" }
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", branch = "bitvm" }
 lazy_static = "1.4.0"
 
 # cli
@@ -36,3 +36,27 @@ serde-wasm-bindgen = { version = "0.6.1", optional = true }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 # I think we need to mention this for secp256k1-sys to work
 getrandom = { versioin = "0.2", optional = true }
+
+[patch.crates-io.base58check]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin_hashes]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin-internals]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin-io]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"
+
+[patch.crates-io.bitcoin-units]
+git = "https://github.com/rust-bitcoin/rust-bitcoin"
+branch = "bitvm"

@@ -1,5 +1,5 @@
 
-use std::{cmp, io};
+use std::cmp;
 use std::borrow::Cow;
 
 use bitcoin::consensus::Encodable;
@@ -306,7 +306,7 @@ impl Exec {
 		};
 
 		//TODO(stevenroose) make this more efficient
-		let witness_size = Encodable::consensus_encode(&script_witness, &mut io::sink()).unwrap();
+		let witness_size = Encodable::consensus_encode(&script_witness, &mut bitcoin::io::sink()).unwrap();
 		let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
 
 		let mut ret = Exec {
