@@ -555,6 +555,9 @@ impl Exec {
 					{
 						return self.failop(ExecError::DisabledOpcode, op);
 					}
+					OP_RESERVED => {
+						return self.failop(ExecError::Debug, op);
+					}
 
 					_ => {},
 				}
