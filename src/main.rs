@@ -26,10 +26,10 @@ struct Args {
 }
 
 /// A wrapper for the stack types to print them better.
-struct FmtStack<'a>(&'a Vec<Vec<u8>>);
+struct FmtStack<'a>(&'a Stack);
 impl<'a> fmt::Display for FmtStack<'a> {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		let mut iter = self.0.iter().rev().peekable();
+		let mut iter = self.0.iter_str().rev().peekable();
 		while let Some(item) = iter.next() {
 			write!(f, "<{}>", item.as_hex())?;
 			if iter.peek().is_some() {
@@ -87,8 +87,8 @@ fn inner_main() -> Result<(), String> {
 				out.write_all(&['\n' as u8]).expect("I/O error");
 			} else {
 				println!("Remaining script: {}", exec.remaining_script().to_asm_string());
-				println!("Stack: {}", FmtStack(&exec.stack().iter_str().collect::<Vec<Vec<u8>>>()));
-				println!("AltStack: {}", FmtStack(&exec.altstack().iter_str().collect::<Vec<Vec<u8>>>()));
+				println!("Stack: {}", FmtStack(&exec.stack()));
+				println!("AltStack: {}", FmtStack(&exec.altstack()));
 				println!("{}", SEP);
 			}
 		}
@@ -109,9 +109,9 @@ fn inner_main() -> Result<(), String> {
 		};
 		serde_json::to_writer(&out, &ret).expect("I/O error");
 	} else {
-		println!("Execution ended. Succes: {}", res.success);
-		print!("Final stack: {}", FmtStack(&res.final_stack.iter_str().collect::<Vec<Vec<u8>>>()));
-		println!("");
+		println!("Execution ended. Success: {}", res.success);
+		print!("Final stack: {}", FmtStack(&res.final_stack));
+		println!();
 		if !res.success {
 			println!("Failed on opcode: {:?}", res.opcode);
 			println!("Error: {:?}", res.error);

@@ -25,7 +25,6 @@ mod signatures;
 
 mod error;
 pub use error::{Error, ExecError};
-use crate::data_structures::Stack;
 
 #[cfg(feature = "json")]
 pub mod json;
@@ -33,6 +32,7 @@ pub mod json;
 mod wasm;
 
 mod data_structures;
+pub use data_structures::Stack;
 
 /// Maximum number of non-push operations per script
 const MAX_OPS_PER_SCRIPT: usize = 201;
