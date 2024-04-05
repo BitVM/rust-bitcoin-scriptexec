@@ -79,16 +79,16 @@ fn inner_main() -> Result<(), String> {
 			if args.json {
 				let step = json::RunStep {
 					remaining_script: exec.remaining_script(),
-					stack: exec.stack(),
-					altstack: exec.altstack(),
+					stack: &exec.stack().iter_str().collect::<Vec<Vec<u8>>>(),
+					altstack: &exec.altstack().iter_str().collect::<Vec<Vec<u8>>>(),
 					stats: Some(exec.stats()),
 				};
 				serde_json::to_writer(&out, &step).expect("I/O error");
 				out.write_all(&['\n' as u8]).expect("I/O error");
 			} else {
 				println!("Remaining script: {}", exec.remaining_script().to_asm_string());
-				println!("Stack: {}", FmtStack(exec.stack()));
-				println!("AltStack: {}", FmtStack(exec.altstack()));
+				println!("Stack: {}", FmtStack(&exec.stack().iter_str().collect::<Vec<Vec<u8>>>()));
+				println!("AltStack: {}", FmtStack(&exec.altstack().iter_str().collect::<Vec<Vec<u8>>>()));
 				println!("{}", SEP);
 			}
 		}
@@ -104,13 +104,13 @@ fn inner_main() -> Result<(), String> {
 			success: res.success,
 			error: res.error.map(|e| format!("{:?}", e)), //TODO(stevenroose) fmt::Display
 			opcode: res.opcode,
-			final_stack: &res.final_stack,
+			final_stack: &res.final_stack.iter_str().collect::<Vec<Vec<u8>>>(),
 			stats: Some(exec.stats()),
 		};
 		serde_json::to_writer(&out, &ret).expect("I/O error");
 	} else {
 		println!("Execution ended. Succes: {}", res.success);
-		print!("Final stack: {}", FmtStack(&res.final_stack));
+		print!("Final stack: {}", FmtStack(&res.final_stack.iter_str().collect::<Vec<Vec<u8>>>()));
 		println!("");
 		if !res.success {
 			println!("Failed on opcode: {:?}", res.opcode);
