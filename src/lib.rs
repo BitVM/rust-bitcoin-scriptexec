@@ -1,10 +1,12 @@
+extern crate alloc;
+extern crate core;
 
-use std::cmp;
-use std::borrow::Cow;
+use core::cmp;
+use alloc::borrow::Cow;
 
 use bitcoin::consensus::Encodable;
 use bitcoin::hashes::{Hash, ripemd160, sha1, sha256, hash160, sha256d};
-use bitcoin::opcodes::{self, all::*, Opcode};
+use bitcoin::opcodes::{all::*, Opcode};
 use bitcoin::script::{self, Instruction, Instructions, Script, ScriptBuf};
 use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, TapLeafHash};
@@ -29,6 +31,8 @@ pub mod json;
 #[cfg(feature = "wasm")]
 mod wasm;
 
+mod data_structures;
+pub use data_structures::Stack;
 
 /// Maximum number of non-push operations per script
 const MAX_OPS_PER_SCRIPT: usize = 201;
@@ -54,16 +58,6 @@ const VALIDATION_WEIGHT_PER_SIGOP_PASSED: i64 = 50;
 
 // Maximum number of public keys per multisig
 const MAX_PUBKEYS_PER_MULTISIG: i64 = 20;
-
-
-/// The stack item representing true.
-fn item_true() -> Vec<u8> {
-	vec![1]
-}
-/// The stack item representing false.
-fn item_false() -> Vec<u8> {
-	vec![]
-}
 
 /// Used to enable experimental script features.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,17 +117,17 @@ pub struct ExecutionResult {
 	pub success: bool,
 	pub error: Option<ExecError>,
 	pub opcode: Option<Opcode>,
-	pub final_stack: Vec<Vec<u8>>,
+	pub final_stack: Stack,
 }
 
 impl ExecutionResult {
-	fn from_final_stack(ctx: ExecCtx, final_stack: Vec<Vec<u8>>) -> ExecutionResult {
+	fn from_final_stack(ctx: ExecCtx, final_stack: Stack) -> ExecutionResult {
 		ExecutionResult {
 			success: match ctx {
 				ExecCtx::Legacy => {
 					if final_stack.is_empty() {
 						false
-					} else if !script::read_scriptbool(final_stack.last().unwrap()) {
+					} else if !script::read_scriptbool(&final_stack.last().unwrap()) {
 						false
 					} else {
 						true
@@ -142,7 +136,7 @@ impl ExecutionResult {
 				ExecCtx::SegwitV0 | ExecCtx::Tapscript => {
 					if final_stack.len() != 1 {
 						false
-					} else if !script::read_scriptbool(final_stack.last().unwrap()) {
+					} else if !script::read_scriptbool(&final_stack.last().unwrap()) {
 						false
 					} else {
 						true
@@ -162,11 +156,6 @@ pub struct ExecStats {
 	/// The highest number of stack items occurred during execution.
 	/// This counts both the stack and the altstack.
 	pub max_nb_stack_items: usize,
-	/// The highest total stack size in bytes occurred during execution.
-	/// This counts both the stack and the altstack.
-	pub max_stack_bytes: usize,
-	/// The maximum size of any single stack item occurred during execution.
-	pub max_stack_item_size: usize,
 
 	/// The number of opcodes executed, plus an additional one
 	/// per signature in CHECKMULTISIG.
@@ -177,52 +166,6 @@ pub struct ExecStats {
 	/// The current remaining validation weight.
 	pub validation_weight: i64,
 }
-
-/// An extention trait on [Vec<u8>] with some utility methods we
-/// want for our stacks.
-trait StackExt: AsRef<Vec<Vec<u8>>> + AsMut<Vec<Vec<u8>>> {
-	/// Get items from the top of the stack.
-	///
-	/// F.e. with [offset] equal to -1, this returns the last element.
-	fn top(&self, offset: isize) -> Result<&Vec<u8>, ExecError> {
-		debug_assert!(offset < 0, "offsets should be < 0");
-		self.as_ref().len().checked_sub(offset.abs() as usize).and_then(|i| {
-			self.as_ref().iter().nth(i)
-		}).ok_or(ExecError::InvalidStackOperation)
-	}
-
-	/// Get items from the top of the stack and try to interpret as a ScriptInt.
-	///
-	/// F.e. with [offset] equal to -1, this returns the last element.
-	fn topnum(&self, offset: isize, require_minimal: bool) -> Result<i64, ExecError> {
-		let x = self.top(offset)?;
-		Ok(read_scriptint(x, 4, require_minimal)?)
-	}
-
-	/// Push the number on the stack, encoded as a scriptint.
-	fn pushnum(&mut self, num: i64) {
-		self.as_mut().push(script::scriptint_vec(num));
-	}
-
-	/// Ensure there are at least [min_nb_items] on the stack, otherwise
-	/// return error.
-	fn needn(&self, min_nb_items: usize) -> Result<(), ExecError> {
-		if self.as_ref().len() < min_nb_items {
-			Err(ExecError::InvalidStackOperation)
-		} else {
-			Ok(())
-		}
-	}
-
-	/// Pop [n] items from the end of the stack.
-	fn popn(&mut self, n: usize) -> Result<(), ExecError> {
-		for _ in 0..n {
-			self.as_mut().pop().ok_or(ExecError::InvalidStackOperation)?;
-		}
-		Ok(())
-	}
-}
-impl StackExt for Vec<Vec<u8>> {}
 
 /// Partial execution of a script.
 pub struct Exec {
@@ -236,8 +179,8 @@ pub struct Exec {
 	instructions: Instructions<'static>,
 	current_position: usize,
 	cond_stack: ConditionStack,
-	stack: Vec<Vec<u8>>,
-	altstack: Vec<Vec<u8>>,
+	stack: Stack,
+	altstack: Stack,
 	last_codeseparator_pos: Option<u32>,
 	// Initially set to the whole script, but updated when
 	// OP_CODESEPARATOR is encountered.
@@ -319,8 +262,8 @@ impl Exec {
 			current_position: 0,
 			cond_stack: ConditionStack::new(),
 			//TODO(stevenroose) does this need to be reversed?
-			stack: script_witness.clone(),
-			altstack: Vec::new(),
+			stack: Stack::from_u8_vec(script_witness),
+			altstack: Stack::new(),
 			opcode_count: 0,
 			validation_weight: start_validation_weight,
 			last_codeseparator_pos: None,
@@ -356,11 +299,11 @@ impl Exec {
 		&self.script[pos..]
 	}
 
-	pub fn stack(&self) -> &Vec<Vec<u8>> {
+	pub fn stack(&self) -> &Stack {
 		&self.stack
 	}
 
-	pub fn altstack(&self) -> &Vec<Vec<u8>> {
+	pub fn altstack(&self) -> &Stack {
 		&self.altstack
 	}
 
@@ -451,7 +394,7 @@ impl Exec {
 		//TODO(stevenroose) somehow sigops limit should be checked somewhere
 
 		// Drop the signature in pre-segwit scripts but not segwit scripts
-		let mut scriptcode = Cow::Borrowed(self.script_code.clone().as_bytes());
+		let mut scriptcode = Cow::Borrowed(self.script_code.as_bytes());
 		if self.ctx == ExecCtx::Legacy {
 			let mut i = 0;
 			while i < scriptcode.len() - sig.len() {
@@ -530,7 +473,7 @@ impl Exec {
 					return self.fail(ExecError::PushSize)
 				}
 				if exec {
-					self.stack.push(p.as_bytes().to_vec());
+					self.stack.pushstr(p.as_bytes());
 				}
 			}
 			Instruction::Op(op) => {
@@ -597,7 +540,7 @@ impl Exec {
 			OP_NOP => {},
 
 			OP_CLTV if self.opt.verify_cltv => {
-				let top = self.stack.top(-1)?;
+				let top = self.stack.topstr(-1)?;
 
 				// Note that elsewhere numeric opcodes are limited to
 				// operands in the range -2**31+1 to 2**31-1, however it is
@@ -613,7 +556,7 @@ impl Exec {
 				// Thus as a special case we tell CScriptNum to accept up
 				// to 5-byte bignums, which are good until 2**39-1, well
 				// beyond the 2**32-1 limit of the nLockTime field itself.
-				let n = read_scriptint(top, 5, self.opt.require_minimal)?;
+				let n = read_scriptint(&top, 5, self.opt.require_minimal)?;
 
 				if n < 0 {
 					return Err(ExecError::NegativeLocktime);
@@ -626,12 +569,12 @@ impl Exec {
 			OP_CLTV => {}, // otherwise nop
 
 			OP_CSV if self.opt.verify_csv => {
-				let top = self.stack.top(-1)?;
+				let top = self.stack.topstr(-1)?;
 
 				// nSequence, like nLockTime, is a 32-bit unsigned integer
 				// field. See the comment in CHECKLOCKTIMEVERIFY regarding
 				// 5-byte numeric operands.
-				let n = read_scriptint(top, 5, self.opt.require_minimal)?;
+				let n = read_scriptint(&top, 5, self.opt.require_minimal)?;
 
 				if n < 0 {
 					return Err(ExecError::NegativeLocktime);
@@ -653,7 +596,7 @@ impl Exec {
 
 			OP_IF | OP_NOTIF => {
 				if exec {
-					let top = self.stack.top(-1)?;
+					let top = self.stack.topstr(-1)?;
 
 					// Tapscript requires minimal IF/NOTIF inputs as a consensus rule.
 					if self.ctx == ExecCtx::Tapscript {
@@ -670,9 +613,9 @@ impl Exec {
 						}
 					}
 					let b = if op == OP_NOTIF {
-						!script::read_scriptbool(top)
+						!script::read_scriptbool(&top)
 					} else {
-						script::read_scriptbool(top)
+						script::read_scriptbool(&top)
 					};
 					self.stack.pop().unwrap();
 					self.cond_stack.push(b);
@@ -694,9 +637,9 @@ impl Exec {
 			}
 
 			OP_VERIFY => {
-				let top = self.stack.top(-1)?;
+				let top = self.stack.topstr(-1)?;
 
-				if !script::read_scriptbool(top) {
+				if !script::read_scriptbool(&top) {
 					return Err(ExecError::Verify);
 				} else {
 					self.stack.pop().unwrap();
@@ -745,8 +688,8 @@ impl Exec {
 			OP_2OVER => {
 				// (x1 x2 x3 x4 -- x1 x2 x3 x4 x1 x2)
 				self.stack.needn(4)?;
-				let x1 = self.stack.top(-4).unwrap().clone();
-				let x2 = self.stack.top(-3).unwrap().clone();
+				let x1 = self.stack.top(-4)?.clone();
+				let x2 = self.stack.top(-3)?.clone();
 				self.stack.push(x1);
 				self.stack.push(x2);
 			}
@@ -760,12 +703,12 @@ impl Exec {
 				let x3 = self.stack.pop().unwrap();
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
-				self.stack.push(x3.clone());
-				self.stack.push(x4.clone());
-				self.stack.push(x5.clone());
-				self.stack.push(x6.clone());
-				self.stack.push(x1.clone());
-				self.stack.push(x2.clone());
+				self.stack.push(x3);
+				self.stack.push(x4);
+				self.stack.push(x5);
+				self.stack.push(x6);
+				self.stack.push(x1);
+				self.stack.push(x2);
 			}
 
 			OP_2SWAP => {
@@ -775,17 +718,17 @@ impl Exec {
 				let x3 = self.stack.pop().unwrap();
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
-				self.stack.push(x3.clone());
-				self.stack.push(x4.clone());
-				self.stack.push(x1.clone());
-				self.stack.push(x2.clone());
+				self.stack.push(x3);
+				self.stack.push(x4);
+				self.stack.push(x1);
+				self.stack.push(x2);
 			}
 
 			OP_IFDUP => {
 				// (x - 0 | x x)
-				let top = self.stack.top(-1)?;
-				if script::read_scriptbool(top) {
-					self.stack.push(top.clone());
+				let top = self.stack.topstr(-1)?;
+				if script::read_scriptbool(&top) {
+					self.stack.push(self.stack.top(-1)?.clone());
 				}
 			}
 
@@ -803,8 +746,8 @@ impl Exec {
 
 			OP_DUP => {
 				// (x -- x x)
-				let top = self.stack.top(-1)?;
-				self.stack.push(top.clone());
+				let top = self.stack.top(-1)?.clone();
+				self.stack.push(top);
 			}
 
 			OP_NIP => {
@@ -817,8 +760,8 @@ impl Exec {
 
 			OP_OVER => {
 				// (x1 x2 -- x1 x2 x1)
-				let under_top = self.stack.top(-2)?;
-				self.stack.push(under_top.clone());
+				let under_top = self.stack.top(-2)?.clone();
+				self.stack.push(under_top);
 			}
 
 			OP_PICK | OP_ROLL => {
@@ -842,9 +785,9 @@ impl Exec {
 				let x3 = self.stack.pop().unwrap();
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
-				self.stack.push(x2.clone());
-				self.stack.push(x3.clone());
-				self.stack.push(x1.clone());
+				self.stack.push(x2);
+				self.stack.push(x3);
+				self.stack.push(x1);
 			}
 
 			OP_SWAP => {
@@ -852,8 +795,8 @@ impl Exec {
 				self.stack.needn(2)?;
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
-				self.stack.push(x2.clone());
-				self.stack.push(x1.clone());
+				self.stack.push(x2);
+				self.stack.push(x1);
 			}
 
 			OP_TUCK => {
@@ -862,22 +805,22 @@ impl Exec {
 				let x2 = self.stack.pop().unwrap();
 				let x1 = self.stack.pop().unwrap();
 				self.stack.push(x2.clone());
-				self.stack.push(x1.clone());
-				self.stack.push(x2.clone());
+				self.stack.push(x1);
+				self.stack.push(x2);
 			}
 
 			OP_CAT if self.opt.experimental.op_cat => {
 				// (x1 x2 -- x1|x2)
 				self.stack.needn(2)?;
-				let x2 = self.stack.pop().unwrap();
-				let x1 = self.stack.pop().unwrap();
-				let ret = x1.into_iter().chain(x2.into_iter()).collect();
-				self.stack.push(ret);
+				let x2 = self.stack.popstr().unwrap();
+				let x1 = self.stack.popstr().unwrap();
+				let ret: Vec<u8> = x1.into_iter().chain(x2.into_iter()).collect();
+				self.stack.pushstr(&ret);
 			}
 
 			OP_SIZE => {
 				// (in -- in size)
-				let top = self.stack.top(-1)?;
+				let top = self.stack.topstr(-1)?;
 				self.stack.pushnum(top.len() as i64);
 			}
 
@@ -887,15 +830,15 @@ impl Exec {
 			OP_EQUAL | OP_EQUALVERIFY => {
 				// (x1 x2 - bool)
 				self.stack.needn(2)?;
-				let x2 = self.stack.pop().unwrap();
-				let x1 = self.stack.pop().unwrap();
+				let x2 = self.stack.popstr().unwrap();
+				let x1 = self.stack.popstr().unwrap();
 				let equal = x1 == x2;
 				if op == OP_EQUALVERIFY && !equal {
 					return Err(ExecError::EqualVerify);
 				}
 				if op == OP_EQUAL {
-					let item = if equal { item_true() } else { item_false() };
-					self.stack.push(item);
+					let item = if equal { 1 } else { 0 };
+					self.stack.pushnum(item);
 				}
 			}
 
@@ -956,8 +899,8 @@ impl Exec {
 				let x3 = self.stack.topnum(-1, self.opt.require_minimal)?;
 				self.stack.popn(3).unwrap();
 				let res = x2 <= x1 && x1 < x3;
-				let item = if res { item_true() } else { item_false() };
-				self.stack.push(item);
+				let item = if res { 1 } else { 0 };
+				self.stack.pushnum(item);
 			}
 
 			//
@@ -965,24 +908,24 @@ impl Exec {
 
 			// (in -- hash)
 			OP_RIPEMD160 => {
-				let top = self.stack.pop().ok_or(ExecError::InvalidStackOperation)?;
-				self.stack.push(ripemd160::Hash::hash(&top[..]).to_byte_array().to_vec());
+				let top = self.stack.popstr()?;
+				self.stack.pushstr(&ripemd160::Hash::hash(&top[..]).to_byte_array().to_vec());
 			}
 			OP_SHA1 => {
-				let top = self.stack.pop().ok_or(ExecError::InvalidStackOperation)?;
-				self.stack.push(sha1::Hash::hash(&top[..]).to_byte_array().to_vec());
+				let top = self.stack.popstr()?;
+				self.stack.pushstr(&sha1::Hash::hash(&top[..]).to_byte_array().to_vec());
 			}
 			OP_SHA256 => {
-				let top = self.stack.pop().ok_or(ExecError::InvalidStackOperation)?;
-				self.stack.push(sha256::Hash::hash(&top[..]).to_byte_array().to_vec());
+				let top = self.stack.popstr()?;
+				self.stack.pushstr(&sha256::Hash::hash(&top[..]).to_byte_array().to_vec());
 			}
 			OP_HASH160 => {
-				let top = self.stack.pop().ok_or(ExecError::InvalidStackOperation)?;
-				self.stack.push(hash160::Hash::hash(&top[..]).to_byte_array().to_vec());
+				let top = self.stack.popstr()?;
+				self.stack.pushstr(&hash160::Hash::hash(&top[..]).to_byte_array().to_vec());
 			}
 			OP_HASH256 => {
-				let top = self.stack.pop().ok_or(ExecError::InvalidStackOperation)?;
-				self.stack.push(sha256d::Hash::hash(&top[..]).to_byte_array().to_vec());
+				let top = self.stack.popstr()?;
+				self.stack.pushstr(&sha256d::Hash::hash(&top[..]).to_byte_array().to_vec());
 			}
 
 			OP_CODESEPARATOR => {
@@ -992,16 +935,16 @@ impl Exec {
 			}
 
 			OP_CHECKSIG | OP_CHECKSIGVERIFY => {
-				let sig = self.stack.top(-2)?.clone();
-				let pk = self.stack.top(-1)?.clone();
+				let sig = self.stack.topstr(-2)?.clone();
+				let pk = self.stack.topstr(-1)?.clone();
 				let res = self.check_sig(&sig, &pk)?;
 				self.stack.popn(2).unwrap();
 				if op == OP_CHECKSIGVERIFY && !res {
 					return Err(ExecError::CheckSigVerify);
 				}
 				if op == OP_CHECKSIG {
-					let ret = if res { item_true() } else { item_false() };
-					self.stack.push(ret);
+					let ret = if res { 1 } else { 0 };
+					self.stack.pushnum(ret);
 				}
 			}
 
@@ -1009,9 +952,9 @@ impl Exec {
 				if self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0 {
 					return Err(ExecError::BadOpcode);
 				}
-				let sig = self.stack.top(-3)?.clone();
+				let sig = self.stack.topstr(-3)?.clone();
 				let mut n = self.stack.topnum(-2, self.opt.require_minimal)?;
-				let pk = self.stack.top(-1)?.clone();
+				let pk = self.stack.topstr(-1)?.clone();
 				let res = self.check_sig(&sig, &pk)?;
 				self.stack.popn(3).unwrap();
 				if res {
@@ -1044,14 +987,6 @@ impl Exec {
 	fn update_stats(&mut self) {
 		let stack_items = self.stack.len() + self.altstack.len();
 		self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
-
-		let stack_size = self.stack.iter().chain(self.altstack.iter()).map(|i| i.len()).sum();
-		self.stats.max_stack_bytes = cmp::max(self.stats.max_stack_bytes, stack_size);
-
-		// NB since every item that ever gets on the altstack first gets on the stack,
-		// we don't have to look at the altstack here
-		let max_item = self.stack.iter().map(|i| i.len()).max().unwrap_or(0);
-		self.stats.max_stack_item_size = cmp::max(self.stats.max_stack_item_size, max_item);
 
 		self.stats.opcode_count = self.opcode_count;
 		self.stats.validation_weight = self.validation_weight;

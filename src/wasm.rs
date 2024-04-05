@@ -78,7 +78,7 @@ pub fn run_script(script_hex: &str, script_witness: Box<[JsValue]>) -> Result<Js
 			let res = res.clone();
 			let mut ret = json!({
 				"success": res.success,
-				"final_stack": res.final_stack.iter()
+				"final_stack": res.final_stack.iter_str()
 					.map(|i| i.as_hex().to_string())
 					.collect::<Vec<_>>(),
 				"stats": serde_json::to_value(&exec.stats()).unwrap(),
