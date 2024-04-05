@@ -142,6 +142,13 @@ impl Stack {
             }
         })
     }
+
+    pub fn get(&self, index: usize) -> Vec<u8> {
+        match &self.0[index] {
+            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::StrRef(v) => v.borrow().to_vec(),
+        }
+    }
 }
 
 impl Default for Stack {
