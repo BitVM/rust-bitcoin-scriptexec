@@ -1,6 +1,3 @@
-
-
-
 #[macro_export]
 macro_rules! or_else {
 	($e:expr, $($else:tt)+) => {
@@ -11,4 +8,3 @@ macro_rules! or_else {
 		}
 	};
 }
-

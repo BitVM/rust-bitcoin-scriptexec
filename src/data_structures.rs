@@ -1,10 +1,10 @@
+use crate::{read_scriptint, ExecError};
+use alloc::rc::Rc;
+use bitcoin::script;
 use core::cell::RefCell;
 use core::cmp::PartialEq;
-use alloc::rc::Rc;
 use core::slice::Iter;
 use std::iter::Map;
-use bitcoin::script;
-use crate::{ExecError, read_scriptint};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StackEntry {
@@ -17,7 +17,7 @@ pub struct Stack(Vec<StackEntry>);
 
 impl Stack {
     pub fn new() -> Self {
-        Self (Vec::with_capacity(1000))
+        Self(Vec::with_capacity(1000))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -38,32 +38,26 @@ impl Stack {
 
     pub fn top(&self, offset: isize) -> Result<&StackEntry, ExecError> {
         debug_assert!(offset < 0, "offsets should be < 0");
-        self.0.len().checked_sub(offset.abs() as usize).and_then(|i| {
-            Some(&self.0[i])
-        }).ok_or(ExecError::InvalidStackOperation)
+        self.0
+            .len()
+            .checked_sub(offset.abs() as usize)
+            .and_then(|i| Some(&self.0[i]))
+            .ok_or(ExecError::InvalidStackOperation)
     }
 
     pub fn topstr(&self, offset: isize) -> Result<Vec<u8>, ExecError> {
         let entry = self.top(offset)?;
         match entry {
-            StackEntry::Num(v) => {
-                Ok(script::scriptint_vec(*v))
-            }
-            StackEntry::StrRef(v) => {
-                Ok(v.borrow().to_vec())
-            }
+            StackEntry::Num(v) => Ok(script::scriptint_vec(*v)),
+            StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
 
     pub fn topnum(&self, offset: isize, require_minimal: bool) -> Result<i64, ExecError> {
         let entry = self.top(offset)?;
         match entry {
-            StackEntry::Num(v) => {
-                Ok(*v)
-            }
-            StackEntry::StrRef(v) => {
-                Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?)
-            }
+            StackEntry::Num(v) => Ok(*v),
+            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
         }
     }
 
@@ -72,7 +66,8 @@ impl Stack {
     }
 
     pub fn pushstr(&mut self, v: &[u8]) {
-        self.0.push(StackEntry::StrRef(Rc::new(RefCell::new(v.to_vec()))));
+        self.0
+            .push(StackEntry::StrRef(Rc::new(RefCell::new(v.to_vec()))));
     }
 
     pub fn push(&mut self, v: StackEntry) {
@@ -101,24 +96,16 @@ impl Stack {
     pub fn popstr(&mut self) -> Result<Vec<u8>, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
-            StackEntry::Num(v) => {
-                Ok(script::scriptint_vec(v))
-            }
-            StackEntry::StrRef(v) => {
-                Ok(v.borrow().to_vec())
-            }
+            StackEntry::Num(v) => Ok(script::scriptint_vec(v)),
+            StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
 
     pub fn popnum(&mut self, require_minimal: bool) -> Result<i64, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
-            StackEntry::Num(v) => {
-                Ok(v)
-            }
-            StackEntry::StrRef(v) => {
-                Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?)
-            }
+            StackEntry::Num(v) => Ok(v),
+            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
         }
     }
 
@@ -131,15 +118,9 @@ impl Stack {
     }
 
     pub fn iter_str(&self) -> Map<Iter<StackEntry>, fn(&StackEntry) -> Vec<u8>> {
-        self.0.iter().map(|v| {
-            match v {
-                StackEntry::Num(v) => {
-                    script::scriptint_vec(*v)
-                }
-                StackEntry::StrRef(v) => {
-                    v.borrow().to_vec()
-                }
-            }
+        self.0.iter().map(|v| match v {
+            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::StrRef(v) => v.borrow().to_vec(),
         })
     }
 
