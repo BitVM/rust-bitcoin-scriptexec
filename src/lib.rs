@@ -526,8 +526,8 @@ impl Exec {
             | OP_PUSHNUM_5 | OP_PUSHNUM_6 | OP_PUSHNUM_7 | OP_PUSHNUM_8 | OP_PUSHNUM_9
             | OP_PUSHNUM_10 | OP_PUSHNUM_11 | OP_PUSHNUM_12 | OP_PUSHNUM_13 | OP_PUSHNUM_14
             | OP_PUSHNUM_15 | OP_PUSHNUM_16 => {
-                let n = op.to_u8() - (OP_PUSHNUM_1.to_u8() - 1);
-                self.stack.pushnum(n as i64);
+                let n = op.to_u8() - (OP_PUSHNUM_1.to_u8() - 2);
+                self.stack.pushnum((n as i64) - 1);
             }
 
             //
