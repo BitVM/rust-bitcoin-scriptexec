@@ -62,7 +62,7 @@ impl Exec {
         let pk = XOnlyPublicKey::from_slice(pk).expect("TODO(stevenroose) what to do here?");
         let (sig, hashtype) = if sig.len() == 65 {
             let b = *sig.last().unwrap();
-            let sig = secp256k1::schnorr::Signature::from_slice(&sig[0..sig.len() - 2])
+            let sig = secp256k1::schnorr::Signature::from_slice(&sig[0..sig.len() - 1])
                 .map_err(|_| ExecError::SchnorrSig)?;
 
             if b == TapSighashType::Default as u8 {
