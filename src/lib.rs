@@ -63,9 +63,6 @@ const _MAX_PUBKEYS_PER_MULTISIG: i64 = 20;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Experimental {
     /// Enable an experimental implementation of OP_CAT.
-    ///
-    /// This implementation is naive and does not enforce any
-    /// additional restrictions on the stack.
     pub op_cat: bool,
 }
 
