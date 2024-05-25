@@ -36,6 +36,7 @@ serde-wasm-bindgen = { version = "0.6.1", optional = true }
 console_error_panic_hook = { version = "0.1.7", optional = true }
 # I think we need to mention this for secp256k1-sys to work
 getrandom = { version = "0.2", optional = true }
+plotters = "0.3.6"
 
 [patch.crates-io.base58check]
 git = "https://github.com/rust-bitcoin/rust-bitcoin"

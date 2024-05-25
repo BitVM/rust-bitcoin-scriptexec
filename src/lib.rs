@@ -12,6 +12,8 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, TapLeafHash};
 use bitcoin::transaction::{self, Transaction, TxOut};
 
+use plotters::prelude::*;
+
 #[cfg(feature = "serde")]
 use serde;
 
@@ -77,6 +79,8 @@ pub struct Options {
     pub verify_csv: bool,
     /// Verify conditionals are minimally encoded.
     pub verify_minimal_if: bool,
+    /// Store the script size after every executed opcode.
+    pub script_size_info: bool,
 
     pub experimental: Experimental,
 }
@@ -88,6 +92,7 @@ impl Default for Options {
             verify_cltv: true,
             verify_csv: true,
             verify_minimal_if: true,
+            script_size_info: false,
             experimental: Experimental { op_cat: true },
         }
     }
@@ -151,6 +156,9 @@ pub struct ExecStats {
     /// The highest number of stack items occurred during execution.
     /// This counts both the stack and the altstack.
     pub max_nb_stack_items: usize,
+    /// The stack size after each execution step.
+    /// This counts both the stack and the altstack.
+    pub stack_size_history: Vec<usize>,
 
     /// The number of opcodes executed, plus an additional one
     /// per signature in CHECKMULTISIG.
@@ -160,6 +168,49 @@ pub struct ExecStats {
     pub start_validation_weight: i64,
     /// The current remaining validation weight.
     pub validation_weight: i64,
+}
+
+impl ExecStats {
+    pub fn visualize_stack(&self) {
+        // Create a drawing area
+        let root = BitMapBackend::new("output.png", (1920, 640)).into_drawing_area();
+        root.fill(&WHITE).expect("Unable to fill background");
+        println!("Stack History: {}", self.stack_size_history.len());
+        let mut chart = ChartBuilder::on(&root)
+            .caption("Stack Visualization", ("sans-serif", 50))
+            .x_label_area_size(60)
+            .y_label_area_size(40)
+            .build_cartesian_2d(
+                0..(self.stack_size_history.len()),
+                0..self.max_nb_stack_items,
+            )
+            .unwrap();
+
+        // Configure the mesh to show x labels every 100 values
+        chart
+            .configure_mesh()
+            .disable_x_mesh()
+            .x_labels((self.stack_size_history.len() / 100000) as usize) // Number of labels, not the interval
+            .x_label_formatter(&|x| {
+                if *x % 100000 == 0 {
+                    format!("{}", x)
+                } else {
+                    String::new()
+                }
+            })
+            .draw()
+            .expect("Unable to draw mesh");
+
+        chart
+            .draw_series(LineSeries::new(
+                self.stack_size_history
+                    .iter()
+                    .enumerate()
+                    .map(|(x, y)| (x, *y)),
+                &RED,
+            ))
+            .expect("Unable to draw series");
+    }
 }
 
 /// Partial execution of a script.
@@ -1003,7 +1054,7 @@ impl Exec {
     fn update_stats(&mut self) {
         let stack_items = self.stack.len() + self.altstack.len();
         self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
-
+        self.stats.stack_size_history.push(stack_items);
         self.stats.opcode_count = self.opcode_count;
         self.stats.validation_weight = self.validation_weight;
     }
