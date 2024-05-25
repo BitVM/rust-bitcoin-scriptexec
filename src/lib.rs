@@ -57,15 +57,12 @@ const VALIDATION_WEIGHT_OFFSET: i64 = 50;
 const VALIDATION_WEIGHT_PER_SIGOP_PASSED: i64 = 50;
 
 // Maximum number of public keys per multisig
-const MAX_PUBKEYS_PER_MULTISIG: i64 = 20;
+const _MAX_PUBKEYS_PER_MULTISIG: i64 = 20;
 
 /// Used to enable experimental script features.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Experimental {
     /// Enable an experimental implementation of OP_CAT.
-    ///
-    /// This implementation is naive and does not enforce any
-    /// additional restrictions on the stack.
     pub op_cat: bool,
 }
 
@@ -489,7 +486,7 @@ impl Exec {
                 }
 
                 match op {
-                    OP_CAT if !self.opt.experimental.op_cat => {
+                    OP_CAT if !self.opt.experimental.op_cat || self.ctx != ExecCtx::Tapscript => {
                         return self.failop(ExecError::DisabledOpcode, op);
                     }
                     OP_SUBSTR | OP_LEFT | OP_RIGHT | OP_INVERT | OP_AND | OP_OR | OP_XOR
@@ -806,12 +803,15 @@ impl Exec {
                 self.stack.push(x2);
             }
 
-            OP_CAT if self.opt.experimental.op_cat => {
+            OP_CAT if self.opt.experimental.op_cat && self.ctx == ExecCtx::Tapscript => {
                 // (x1 x2 -- x1|x2)
                 self.stack.needn(2)?;
                 let x2 = self.stack.popstr().unwrap();
                 let x1 = self.stack.popstr().unwrap();
                 let ret: Vec<u8> = x1.into_iter().chain(x2.into_iter()).collect();
+                if ret.len() > MAX_SCRIPT_ELEMENT_SIZE {
+                    return Err(ExecError::PushSize);
+                }
                 self.stack.pushstr(&ret);
             }
 
@@ -985,8 +985,6 @@ impl Exec {
                 unimplemented!();
             }
 
-            _ => unimplemented!(),
-
             // remainder
             _ => return Err(ExecError::BadOpcode),
         }
@@ -1016,6 +1014,5 @@ fn read_scriptint(item: &[u8], size: usize, minimal: bool) -> Result<i64, ExecEr
         script::ScriptIntError::NonMinimalPush => ExecError::MinimalData,
         // only possible if size is 4 or lower
         script::ScriptIntError::NumericOverflow => ExecError::ScriptIntNumericOverflow,
-        _ => unreachable!("not possible"),
     })
 }

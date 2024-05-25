@@ -56,7 +56,13 @@ impl Stack {
     pub fn topnum(&self, offset: isize, require_minimal: bool) -> Result<i64, ExecError> {
         let entry = self.top(offset)?;
         match entry {
-            StackEntry::Num(v) => Ok(*v),
+            StackEntry::Num(v) => {
+                if *v <= i32::MAX as i64 {
+                    Ok(*v)
+                } else {
+                    Err(ExecError::ScriptIntNumericOverflow)
+                }
+            }
             StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
         }
     }
@@ -104,7 +110,13 @@ impl Stack {
     pub fn popnum(&mut self, require_minimal: bool) -> Result<i64, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
-            StackEntry::Num(v) => Ok(v),
+            StackEntry::Num(v) => {
+                if v <= i32::MAX as i64 {
+                    Ok(v)
+                } else {
+                    Err(ExecError::ScriptIntNumericOverflow)
+                }
+            }
             StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
         }
     }
