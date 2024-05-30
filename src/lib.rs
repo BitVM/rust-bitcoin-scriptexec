@@ -81,6 +81,8 @@ pub struct Options {
     pub verify_minimal_if: bool,
     /// Store the script size after every executed opcode.
     pub script_size_info: bool,
+    /// Enfore a strict limit of 1000 total stack items.
+    pub enforce_stack_limit: bool,
 
     pub experimental: Experimental,
 }
@@ -93,6 +95,7 @@ impl Default for Options {
             verify_csv: true,
             verify_minimal_if: true,
             script_size_info: false,
+            enforce_stack_limit: true,
             experimental: Experimental { op_cat: true },
         }
     }
@@ -1065,7 +1068,7 @@ impl Exec {
             _ => return Err(ExecError::BadOpcode),
         }
 
-        if self.stack.len() + self.altstack.len() > MAX_STACK_SIZE {
+        if self.opt.enforce_stack_limit && self.stack.len() + self.altstack.len() > MAX_STACK_SIZE {
             return Err(ExecError::StackSize);
         }
 
