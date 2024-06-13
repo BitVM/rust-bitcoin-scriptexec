@@ -186,13 +186,22 @@ impl ExecStats {
             )
             .unwrap();
 
-        // Configure the mesh to show x labels every 100 values
+        // Collect positions where stack_size_history is 0
+        let zero_entries: Vec<usize> = self
+            .stack_size_history
+            .iter()
+            .enumerate()
+            .filter(|&(_x, &y)| y == 0)
+            .map(|(x, _y)| x)
+            .collect();
+
+        // Configure the mesh to show x labels only at positions where entry is 0
         chart
             .configure_mesh()
             .disable_x_mesh()
-            .x_labels((self.stack_size_history.len() / 100000) as usize) // Number of labels, not the interval
+            .x_labels(zero_entries.len()) // Number of labels
             .x_label_formatter(&|x| {
-                if *x % 100000 == 0 {
+                if zero_entries.contains(x) {
                     format!("{}", x)
                 } else {
                     String::new()
@@ -201,6 +210,7 @@ impl ExecStats {
             .draw()
             .expect("Unable to draw mesh");
 
+        // Draw the line series
         chart
             .draw_series(LineSeries::new(
                 self.stack_size_history
@@ -210,6 +220,16 @@ impl ExecStats {
                 &RED,
             ))
             .expect("Unable to draw series");
+
+        // Draw vertical lines where stack_size_history is 0
+        for x in zero_entries {
+            chart
+                .draw_series(std::iter::once(PathElement::new(
+                    vec![(x, 0), (x, self.max_nb_stack_items)],
+                    &RGBColor(169, 169, 169),
+                )))
+                .expect("Unable to draw chunk line");
+        }
     }
 }
 
@@ -544,6 +564,11 @@ impl Exec {
                     | OP_2MUL | OP_2DIV | OP_MUL | OP_DIV | OP_MOD | OP_LSHIFT | OP_RSHIFT => {
                         return self.failop(ExecError::DisabledOpcode, op);
                     }
+                    // Used as a CHUNK opcode in tree++ (currently only for visualization).
+                    OP_RESERVED1 => {
+                        self.stats.stack_size_history.push(0);
+                    }
+                    // Used as a DEBUG opcode in tree++.
                     OP_RESERVED => {
                         return self.failop(ExecError::Debug, op);
                     }
