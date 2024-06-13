@@ -570,6 +570,7 @@ impl Exec {
                     // Used as a CHUNK opcode in tree++ (currently only for visualization).
                     OP_RESERVED1 => {
                         self.stats.stack_size_history.push(0);
+						return Ok(());
                     }
                     // Used as a DEBUG opcode in tree++.
                     OP_RESERVED => {
