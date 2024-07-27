@@ -281,6 +281,22 @@ impl Exec {
         Ok(ret)
     }
 
+    pub fn with_stack(
+        ctx: ExecCtx,
+        opt: Options,
+        tx: TxTemplate,
+        script: ScriptBuf,
+        script_witness: Vec<Vec<u8>>,
+        stack: Stack,
+        altstack: Stack,
+    ) -> Result<Exec, Error> {
+        let mut ret = Self::new(ctx, opt, tx, script, script_witness);
+        if let Ok(exec) = &mut ret {
+            exec.stack = stack;
+            exec.altstack = altstack;
+        }
+        ret
+    }
     //////////////////
     // SOME GETTERS //
     //////////////////
