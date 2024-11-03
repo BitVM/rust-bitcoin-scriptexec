@@ -172,7 +172,14 @@ impl Stack {
     pub fn popstr(&mut self) -> Result<Vec<u8>, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
-            StackEntry::Num(v) => Ok(script::scriptint_vec(v)),
+            StackEntry::Num(v) => {
+                let res = script::scriptint_vec(v);
+                if res.is_empty() {
+                    Ok(vec![0])
+                } else {
+                    Ok(res)
+                }
+            },
             StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
