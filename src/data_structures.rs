@@ -25,7 +25,14 @@ impl StackEntry {
     // This assumes the StackEntry fit in a u32 and will pad it with leading zeros to 4 bytes.
     pub fn as_bytes(&self) -> Vec<u8> {
         match self {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => {
+                let res = script::scriptint_vec(*v);
+                if res.is_empty() {
+                    vec![0]
+                } else {
+                    res
+                }
+            },
             StackEntry::StrRef(v) => {
                 let v = v.borrow().to_vec();
                 assert!(
@@ -118,7 +125,14 @@ impl Stack {
     pub fn topstr(&self, offset: isize) -> Result<Vec<u8>, ExecError> {
         let entry = self.top(offset)?;
         match entry {
-            StackEntry::Num(v) => Ok(script::scriptint_vec(*v)),
+            StackEntry::Num(v) => {
+                let res = script::scriptint_vec(*v);
+                if res.is_empty() {
+                    Ok(vec![0])
+                } else {
+                    Ok(res)
+                }
+            },
             StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
@@ -179,7 +193,7 @@ impl Stack {
                 } else {
                     Ok(res)
                 }
-            },
+            }
             StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
@@ -208,14 +222,28 @@ impl Stack {
 
     pub fn iter_str(&self) -> Map<Iter<StackEntry>, fn(&StackEntry) -> Vec<u8>> {
         self.0.iter().map(|v| match v {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => {
+                let res = script::scriptint_vec(*v);
+                if res.is_empty() {
+                    vec![0]
+                } else {
+                    res
+                }
+            },
             StackEntry::StrRef(v) => v.borrow().to_vec(),
         })
     }
 
     pub fn get(&self, index: usize) -> Vec<u8> {
         match &self.0[index] {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => {
+                let res= script::scriptint_vec(*v);
+                if res.is_empty() {
+                    vec![0]
+                } else {
+                    res
+                }
+            },
             StackEntry::StrRef(v) => v.borrow().to_vec(),
         }
     }
