@@ -117,8 +117,7 @@ impl Stack {
         debug_assert!(offset < 0, "offsets should be < 0");
         self.0
             .len()
-            .checked_sub(offset.abs() as usize)
-            .and_then(|i| Some(&self.0[i]))
+            .checked_sub(offset.unsigned_abs()).map(|i| &self.0[i])
             .ok_or(ExecError::InvalidStackOperation)
     }
 

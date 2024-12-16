@@ -80,7 +80,7 @@ pub fn run_script(script_hex: &str, script_witness: Box<[JsValue]>) -> Result<Js
                 "final_stack": res.final_stack.iter_str()
                     .map(|i| i.as_hex().to_string())
                     .collect::<Vec<_>>(),
-                "stats": serde_json::to_value(&exec.stats()).unwrap(),
+                "stats": serde_json::to_value(exec.stats()).unwrap(),
             });
             if !res.success {
                 let obj = ret.as_object_mut().unwrap();

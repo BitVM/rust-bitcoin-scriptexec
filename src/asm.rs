@@ -65,7 +65,7 @@ impl FromAsm for ScriptBuf {
                 word = &word[1..word.len() - 1];
             }
             // Try a number.
-            if let Ok(i) = i64::from_str(&word) {
+            if let Ok(i) = i64::from_str(word) {
                 builder = builder.push_int(i);
                 continue;
             }
@@ -104,11 +104,9 @@ fn try_parse_raw_hex(hex: &str, buf: &mut Vec<u8>) -> bool {
 /// Create an iterator over instruction words and their position in the file.
 fn iter_words(asm: &str) -> impl Iterator<Item = ((usize, usize), &str)> {
     asm.lines().enumerate().flat_map(|(line_idx, line)| {
-        let content = line
-            .splitn(2, "#")
+        let content = line.split("#")
             .next()
-            .unwrap()
-            .splitn(2, "//")
+            .unwrap().split("//")
             .next()
             .unwrap();
         content
