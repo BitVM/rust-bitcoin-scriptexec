@@ -21,8 +21,7 @@ cli = ["json", "clap"]
 wasm = ["json", "wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook", "getrandom/js"]
 
 [dependencies]
-# bitcoin = "0.31.0"
-bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", branch = "bitvm" }
+bitcoin = "0.32.5"
 lazy_static = "1.4.0"
 
 # cli
@@ -40,26 +39,3 @@ getrandom = { version = "0.2", optional = true }
 [dev-dependencies]
 bincode = { version = "1.3" }
 
-[patch.crates-io.base58check]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
-
-[patch.crates-io.bitcoin]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
-
-[patch.crates-io.bitcoin_hashes]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
-
-[patch.crates-io.bitcoin-internals]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
-
-[patch.crates-io.bitcoin-io]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
-
-[patch.crates-io.bitcoin-units]
-git = "https://github.com/rust-bitcoin/rust-bitcoin"
-branch = "bitvm"
