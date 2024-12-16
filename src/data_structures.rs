@@ -1,6 +1,6 @@
 use crate::{read_scriptint, ExecError};
 use alloc::rc::Rc;
-use bitcoin::script;
+use bitcoin::script::write_scriptint;
 use core::cell::RefCell;
 use core::cmp::PartialEq;
 use core::slice::Iter;
@@ -15,6 +15,13 @@ pub enum StackEntry {
     StrRef(Rc<RefCell<Vec<u8>>>),
 }
 
+/// Returns minimally encoded scriptint as a byte vector.
+pub fn scriptint_vec(n: i64) -> Vec<u8> {
+    let mut buf = [0u8; 8];
+    let len = write_scriptint(&mut buf, n);
+    buf[0..len].to_vec()
+}
+
 impl StackEntry {
     #[deprecated(note = "Use `as_bytes` to avoid the borrow")]
     // This assumes the StackEntry fit in a u32 and will pad it with leading zeros to 4 bytes.
@@ -25,7 +32,7 @@ impl StackEntry {
     // This assumes the StackEntry fit in a u32 and will pad it with leading zeros to 4 bytes.
     pub fn as_bytes(&self) -> Vec<u8> {
         match self {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => scriptint_vec(*v),
             StackEntry::StrRef(v) => {
                 let v = v.borrow().to_vec();
                 assert!(
@@ -118,7 +125,7 @@ impl Stack {
     pub fn topstr(&self, offset: isize) -> Result<Vec<u8>, ExecError> {
         let entry = self.top(offset)?;
         match entry {
-            StackEntry::Num(v) => Ok(script::scriptint_vec(*v)),
+            StackEntry::Num(v) => Ok(scriptint_vec(*v)),
             StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
@@ -172,7 +179,7 @@ impl Stack {
     pub fn popstr(&mut self) -> Result<Vec<u8>, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
-            StackEntry::Num(v) => Ok(script::scriptint_vec(v)),
+            StackEntry::Num(v) => Ok(scriptint_vec(v)),
             StackEntry::StrRef(v) => Ok(v.borrow().to_vec()),
         }
     }
@@ -201,14 +208,14 @@ impl Stack {
 
     pub fn iter_str(&self) -> Map<Iter<StackEntry>, fn(&StackEntry) -> Vec<u8>> {
         self.0.iter().map(|v| match v {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => scriptint_vec(*v),
             StackEntry::StrRef(v) => v.borrow().to_vec(),
         })
     }
 
     pub fn get(&self, index: usize) -> Vec<u8> {
         match &self.0[index] {
-            StackEntry::Num(v) => script::scriptint_vec(*v),
+            StackEntry::Num(v) => scriptint_vec(*v),
             StackEntry::StrRef(v) => v.borrow().to_vec(),
         }
     }
@@ -219,7 +226,7 @@ impl Stack {
     pub fn serialize_to_bytes(self) -> Vec<u8> {
         let mut bytes = vec![];
         for entry in self.0 {
-            bytes.extend(entry.serialize_to_bytes());
+            bytes.extend(entry.as_bytes());
         }
         bytes
     }

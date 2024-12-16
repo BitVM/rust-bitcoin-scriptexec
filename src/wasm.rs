@@ -11,7 +11,7 @@ use crate::*;
 #[wasm_bindgen]
 pub fn script_asm_to_hex(script_asm: &str) -> Result<String, JsValue> {
     let script =
-        ScriptBuf::parse_asm(script_asm).map_err(|e| format!("error parsing script: {:?}", e))?;
+        ScriptBuf::from_asm(script_asm).map_err(|e| format!("error parsing script: {:?}", e))?;
     Ok(script.as_bytes().as_hex().to_string())
 }
 

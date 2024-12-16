@@ -43,7 +43,7 @@ fn inner_main() -> Result<(), String> {
     let args = Args::parse();
 
     let script_asm = std::fs::read_to_string(args.script_path).expect("error reading script file");
-    let script = ScriptBuf::parse_asm(&script_asm).expect("error parsing script");
+    let script = ScriptBuf::from_asm(&script_asm).expect("error parsing script");
     println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
     println!("Script size: {} bytes", script.as_bytes().len());
 
