@@ -11,7 +11,7 @@ use crate::*;
 #[wasm_bindgen]
 pub fn script_asm_to_hex(script_asm: &str) -> Result<String, JsValue> {
     let script =
-        ScriptBuf::parse_asm(script_asm).map_err(|e| format!("error parsing script: {:?}", e))?;
+        ScriptBuf::from_asm(script_asm).map_err(|e| format!("error parsing script: {:?}", e))?;
     Ok(script.as_bytes().as_hex().to_string())
 }
 
@@ -80,7 +80,7 @@ pub fn run_script(script_hex: &str, script_witness: Box<[JsValue]>) -> Result<Js
                 "final_stack": res.final_stack.iter_str()
                     .map(|i| i.as_hex().to_string())
                     .collect::<Vec<_>>(),
-                "stats": serde_json::to_value(&exec.stats()).unwrap(),
+                "stats": serde_json::to_value(exec.stats()).unwrap(),
             });
             if !res.success {
                 let obj = ret.as_object_mut().unwrap();

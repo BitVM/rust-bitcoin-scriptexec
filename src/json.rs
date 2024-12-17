@@ -8,7 +8,7 @@ use crate::ExecStats;
 
 /// Simple utility wrapper to serde-serialize using [fmt::Display].
 struct FmtSer<'a, T: fmt::Display>(&'a T);
-impl<'a, T: fmt::Display> Serialize for FmtSer<'a, T> {
+impl<T: fmt::Display> Serialize for FmtSer<'_, T> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.collect_str(&self.0)
     }
@@ -16,7 +16,7 @@ impl<'a, T: fmt::Display> Serialize for FmtSer<'a, T> {
 
 /// Wrapper to fmt::Display a Script as ASM.
 struct ScriptAsm<'a>(&'a Script);
-impl<'a> fmt::Display for ScriptAsm<'a> {
+impl fmt::Display for ScriptAsm<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.0.fmt_asm(f)
     }
@@ -24,7 +24,7 @@ impl<'a> fmt::Display for ScriptAsm<'a> {
 
 /// Wrapper to serialize a stack as hex elements.
 struct StackSer<'a>(&'a [Vec<u8>]);
-impl<'a> Serialize for StackSer<'a> {
+impl Serialize for StackSer<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut seq = s.serialize_seq(Some(self.0.len()))?;
         for i in self.0.iter() {
@@ -41,7 +41,7 @@ pub struct RunStep<'a> {
     pub stats: Option<&'a ExecStats>,
 }
 
-impl<'a> Serialize for RunStep<'a> {
+impl Serialize for RunStep<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut m = s.serialize_map(None)?;
         m.serialize_entry(
@@ -69,7 +69,7 @@ pub struct RunResult<'a> {
     pub stats: Option<&'a ExecStats>,
 }
 
-impl<'a> Serialize for RunResult<'a> {
+impl Serialize for RunResult<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut m = s.serialize_map(None)?;
         m.serialize_entry("success", &self.success)?;

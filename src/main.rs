@@ -26,7 +26,7 @@ struct Args {
 
 /// A wrapper for the stack types to print them better.
 struct FmtStack<'a>(&'a Stack);
-impl<'a> fmt::Display for FmtStack<'a> {
+impl fmt::Display for FmtStack<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut iter = self.0.iter_str().rev().peekable();
         while let Some(item) = iter.next() {
@@ -43,7 +43,7 @@ fn inner_main() -> Result<(), String> {
     let args = Args::parse();
 
     let script_asm = std::fs::read_to_string(args.script_path).expect("error reading script file");
-    let script = ScriptBuf::parse_asm(&script_asm).expect("error parsing script");
+    let script = ScriptBuf::from_asm(&script_asm).expect("error parsing script");
     println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
     println!("Script size: {} bytes", script.as_bytes().len());
 
@@ -81,14 +81,14 @@ fn inner_main() -> Result<(), String> {
                     stats: Some(exec.stats()),
                 };
                 serde_json::to_writer(&out, &step).expect("I/O error");
-                out.write_all(&['\n' as u8]).expect("I/O error");
+                out.write_all(&[b'\n']).expect("I/O error");
             } else {
                 println!(
                     "Remaining script: {}",
                     exec.remaining_script().to_asm_string()
                 );
-                println!("Stack: {}", FmtStack(&exec.stack()));
-                println!("AltStack: {}", FmtStack(&exec.altstack()));
+                println!("Stack: {}", FmtStack(exec.stack()));
+                println!("AltStack: {}", FmtStack(exec.altstack()));
                 println!("{}", SEP);
             }
         }
@@ -119,7 +119,7 @@ fn inner_main() -> Result<(), String> {
         println!("Stats:\n{:#?}", exec.stats());
         println!("Time elapsed: {}ms", start.elapsed().as_millis());
     }
-    return Ok(());
+    Ok(())
 }
 
 fn main() {

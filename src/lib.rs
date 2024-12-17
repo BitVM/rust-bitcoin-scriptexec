@@ -26,6 +26,12 @@ mod signatures;
 mod error;
 pub use error::{Error, ExecError};
 
+pub mod asm;
+pub use asm::{FromAsm, FromAsmError, FromAsmErrorKind};
+
+pub mod parse;
+pub use parse::parse_opcode;
+
 #[cfg(feature = "json")]
 pub mod json;
 #[cfg(feature = "wasm")]
@@ -42,6 +48,9 @@ const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
 
 /// Maximum number of values on script interpreter stack
 const MAX_STACK_SIZE: usize = 1000;
+
+/// The default maximum size of scriptints.
+const DEFAULT_MAX_SCRIPTINT_SIZE: usize = 4;
 
 /// If this flag is set, CTxIn::nSequence is NOT interpreted as a
 /// relative lock-time.
@@ -77,8 +86,8 @@ pub struct Options {
     pub verify_csv: bool,
     /// Verify conditionals are minimally encoded.
     pub verify_minimal_if: bool,
-	/// Enfore a strict limit of 1000 total stack items.
-	pub enforce_stack_limit: bool,
+    /// Enfore a strict limit of 1000 total stack items.
+    pub enforce_stack_limit: bool,
 
     pub experimental: Experimental,
 }
@@ -90,7 +99,7 @@ impl Default for Options {
             verify_cltv: true,
             verify_csv: true,
             verify_minimal_if: true,
-			enforce_stack_limit: true,
+            enforce_stack_limit: true,
             experimental: Experimental { op_cat: true },
         }
     }
@@ -125,23 +134,19 @@ impl ExecutionResult {
                 ExecCtx::Legacy => {
                     if final_stack.is_empty() {
                         false
-                    } else if !script::read_scriptbool(&final_stack.last().unwrap()) {
-                        false
                     } else {
-                        true
+                        !(!script::read_scriptbool(&final_stack.last().unwrap()))
                     }
                 }
                 ExecCtx::SegwitV0 | ExecCtx::Tapscript => {
                     if final_stack.len() != 1 {
                         false
-                    } else if !script::read_scriptbool(&final_stack.last().unwrap()) {
-                        false
                     } else {
-                        true
+                        !(!script::read_scriptbool(&final_stack.last().unwrap()))
                     }
                 }
             },
-            final_stack: final_stack,
+            final_stack,
             error: None,
             opcode: None,
         }
@@ -215,7 +220,7 @@ impl Exec {
             }
 
             if let Some((_, Some(ref annex))) = tx.taproot_annex_scriptleaf {
-                if annex.get(0) != Some(&taproot::TAPROOT_ANNEX_PREFIX) {
+                if annex.first() != Some(&taproot::TAPROOT_ANNEX_PREFIX) {
                     return Err(Error::Other("invalid annex: missing prefix"));
                 }
             }
@@ -252,12 +257,12 @@ impl Exec {
         let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
 
         let mut ret = Exec {
-            ctx: ctx,
+            ctx,
             result: None,
 
             sighashcache: SighashCache::new(tx.tx.clone()),
-            script: script,
-            instructions: instructions,
+            script,
+            instructions,
             current_position: 0,
             cond_stack: ConditionStack::new(),
             //TODO(stevenroose) does this need to be reversed?
@@ -268,11 +273,11 @@ impl Exec {
             last_codeseparator_pos: None,
             script_code: script,
 
-            opt: opt,
-            tx: tx,
+            opt,
+            tx,
 
             stats: ExecStats {
-                start_validation_weight: start_validation_weight,
+                start_validation_weight,
                 validation_weight: start_validation_weight,
                 ..Default::default()
             },
@@ -309,7 +314,7 @@ impl Exec {
         self.script.len() - self.instructions.as_script().len()
     }
 
-    pub fn remaining_script<'a>(&'a self) -> &'a Script {
+    pub fn remaining_script(&self) -> &Script {
         let pos = self.script_position();
         &self.script[pos..]
     }
@@ -389,10 +394,11 @@ impl Exec {
             None => return false,
         };
 
-        let lock_time = match LockTime::from_num(sequence) {
-            Some(lt) => lt,
-            None => return false,
-        };
+        let lock_time =
+            match LockTime::from_consensus(u32::try_from(sequence).expect("sequence is u32")) {
+                Ok(lt) => lt,
+                Err(_) => return false,
+            };
 
         match (lock_time, input_lock_time) {
             (LockTime::Blocks(h1), LockTime::Blocks(h2)) if h1 > h2 => return false,
@@ -495,12 +501,12 @@ impl Exec {
                 // Some things we do even when we're not executing.
 
                 // Note how OP_RESERVED does not count towards the opcode limit.
-                if self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0 {
-                    if op.to_u8() > OP_PUSHNUM_16.to_u8() {
-                        self.opcode_count += 1;
-                        if self.opcode_count > MAX_OPS_PER_SCRIPT {
-                            return self.fail(ExecError::OpCount);
-                        }
+                if (self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0)
+                    && op.to_u8() > OP_PUSHNUM_16.to_u8()
+                {
+                    self.opcode_count += 1;
+                    if self.opcode_count > MAX_OPS_PER_SCRIPT {
+                        return self.fail(ExecError::OpCount);
                     }
                 }
 
@@ -593,10 +599,8 @@ impl Exec {
 
                 //TODO(stevenroose) check this logic
                 //TODO(stevenroose) check if this cast is ok
-                if n & SEQUENCE_LOCKTIME_DISABLE_FLAG as i64 == 0 {
-                    if !self.check_sequence(n) {
-                        return Err(ExecError::UnsatisfiedLocktime);
-                    }
+                if n & SEQUENCE_LOCKTIME_DISABLE_FLAG as i64 == 0 && !self.check_sequence(n) {
+                    return Err(ExecError::UnsatisfiedLocktime);
                 }
             }
             OP_CSV => {} // otherwise nop
@@ -618,10 +622,11 @@ impl Exec {
                         }
                     }
                     // Under segwit v0 only enabled as policy.
-                    if self.opt.verify_minimal_if && self.ctx == ExecCtx::SegwitV0 {
-                        if top.len() > 1 || (top.len() == 1 && top[0] != 1) {
-                            return Err(ExecError::TapscriptMinimalIf);
-                        }
+                    if self.opt.verify_minimal_if
+                        && self.ctx == ExecCtx::SegwitV0
+                        && (top.len() > 1 || (top.len() == 1 && top[0] != 1))
+                    {
+                        return Err(ExecError::TapscriptMinimalIf);
                     }
                     let b = if op == OP_NOTIF {
                         !script::read_scriptbool(&top)
@@ -827,7 +832,7 @@ impl Exec {
                 self.stack.needn(2)?;
                 let x2 = self.stack.popstr().unwrap();
                 let x1 = self.stack.popstr().unwrap();
-                let ret: Vec<u8> = x1.into_iter().chain(x2.into_iter()).collect();
+                let ret: Vec<u8> = x1.into_iter().chain(x2).collect();
                 if ret.len() > MAX_SCRIPT_ELEMENT_SIZE {
                     return Err(ExecError::PushSize);
                 }
@@ -942,27 +947,27 @@ impl Exec {
             OP_RIPEMD160 => {
                 let top = self.stack.popstr()?;
                 self.stack
-                    .pushstr(&ripemd160::Hash::hash(&top[..]).to_byte_array().to_vec());
+                    .pushstr(ripemd160::Hash::hash(&top[..]).to_byte_array().as_ref());
             }
             OP_SHA1 => {
                 let top = self.stack.popstr()?;
                 self.stack
-                    .pushstr(&sha1::Hash::hash(&top[..]).to_byte_array().to_vec());
+                    .pushstr(sha1::Hash::hash(&top[..]).to_byte_array().as_ref());
             }
             OP_SHA256 => {
                 let top = self.stack.popstr()?;
                 self.stack
-                    .pushstr(&sha256::Hash::hash(&top[..]).to_byte_array().to_vec());
+                    .pushstr(sha256::Hash::hash(&top[..]).to_byte_array().as_ref());
             }
             OP_HASH160 => {
                 let top = self.stack.popstr()?;
                 self.stack
-                    .pushstr(&hash160::Hash::hash(&top[..]).to_byte_array().to_vec());
+                    .pushstr(hash160::Hash::hash(&top[..]).to_byte_array().as_ref());
             }
             OP_HASH256 => {
                 let top = self.stack.popstr()?;
                 self.stack
-                    .pushstr(&sha256d::Hash::hash(&top[..]).to_byte_array().to_vec());
+                    .pushstr(sha256d::Hash::hash(&top[..]).to_byte_array().as_ref());
             }
 
             OP_CODESEPARATOR => {
@@ -1028,10 +1033,75 @@ impl Exec {
     }
 }
 
+/// Decodes an interger in script format with flexible size limit.
+///
+/// Note that in the majority of cases, you will want to use either
+/// [`read_scriptint`] or [`read_scriptint_non_minimal`] instead.
+///
+/// Panics if max_size exceeds 8.
+pub fn read_scriptint_size(v: &[u8], max_size: usize, minimal: bool) -> Result<i64, script::Error> {
+    assert!(max_size <= 8);
+
+    if v.len() > max_size {
+        return Err(script::Error::NumericOverflow);
+    }
+
+    if v.is_empty() {
+        return Ok(0);
+    }
+
+    if minimal {
+        let last = match v.last() {
+            Some(last) => last,
+            None => return Ok(0),
+        };
+        // Comment and code copied from Bitcoin Core:
+        // https://github.com/bitcoin/bitcoin/blob/447f50e4aed9a8b1d80e1891cda85801aeb80b4e/src/script/script.h#L247-L262
+        // If the most-significant-byte - excluding the sign bit - is zero
+        // then we're not minimal. Note how this test also rejects the
+        // negative-zero encoding, 0x80.
+        if (*last & 0x7f) == 0 {
+            // One exception: if there's more than one byte and the most
+            // significant bit of the second-most-significant-byte is set
+            // it would conflict with the sign bit. An example of this case
+            // is +-255, which encode to 0xff00 and 0xff80 respectively.
+            // (big-endian).
+            if v.len() <= 1 || (v[v.len() - 2] & 0x80) == 0 {
+                return Err(script::Error::NonMinimalPush);
+            }
+        }
+    }
+
+    Ok(scriptint_parse(v))
+}
+
+/// Caller to guarantee that `v` is not empty.
+fn scriptint_parse(v: &[u8]) -> i64 {
+    let (mut ret, sh) = v
+        .iter()
+        .fold((0, 0), |(acc, sh), n| (acc + ((*n as i64) << sh), sh + 8));
+    if v[v.len() - 1] & 0x80 != 0 {
+        ret &= (1 << (sh - 1)) - 1;
+        ret = -ret;
+    }
+    ret
+}
+
 fn read_scriptint(item: &[u8], size: usize, minimal: bool) -> Result<i64, ExecError> {
-    script::read_scriptint_size(item, size, minimal).map_err(|e| match e {
-        script::ScriptIntError::NonMinimalPush => ExecError::MinimalData,
+    read_scriptint_size(item, size, minimal).map_err(|e| match e {
+        script::Error::NonMinimalPush => ExecError::MinimalData,
         // only possible if size is 4 or lower
-        script::ScriptIntError::NumericOverflow => ExecError::ScriptIntNumericOverflow,
+        script::Error::NumericOverflow => ExecError::ScriptIntNumericOverflow,
+        // should never happen
+        _ => unreachable!(),
     })
+}
+
+/// Decodes an integer in script format without non-minimal error.
+///
+/// The overflow error for slices over 4 bytes long is still there.
+/// See [`read_scriptint`] for a description of some subtleties of
+/// this function.
+pub fn read_scriptint_non_minimal(v: &[u8]) -> Result<i64, script::Error> {
+    read_scriptint_size(v, DEFAULT_MAX_SCRIPTINT_SIZE, false)
 }
