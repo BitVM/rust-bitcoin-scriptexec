@@ -18,7 +18,7 @@ good insight into the internals of the execution in a step-wise manner.
 
 ## CLI
 
-You can simply use `cargo run` or build/intall the binary as follows:
+You can simply use `cargo run` or build/install the binary as follows:
 
 ```
 # to build in debug mode
