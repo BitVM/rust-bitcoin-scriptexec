@@ -31,13 +31,15 @@ $ cargo install --locked --path .
 
 ### Usage
 
-The CLI currently takes only a single argument: the path to the ASM script file:
+The CLI takes one or more arguments: the path(s) to the ASM script file(s):
 
 ```
 # using the binary
 $ btcexec <script.bs>
 # using cargo run
 $ cargo run -- <script.bs>
+# concatenating multiple scripts
+$ btcexec <unlockingscript.bs> <lockingscript.bs>
 ```
 
 ## WASM

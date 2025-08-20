@@ -15,7 +15,7 @@ use bitcoin_scriptexec::*;
 struct Args {
     /// filepath to script ASM file
     #[arg(required = true)]
-    script_path: PathBuf,
+    script_path: Vec<PathBuf>,
     /// Whether to print debug info
     #[arg(long)]
     debug: bool,
@@ -42,8 +42,12 @@ impl fmt::Display for FmtStack<'_> {
 fn inner_main() -> Result<(), String> {
     let args = Args::parse();
 
-    let script_asm = std::fs::read_to_string(args.script_path).expect("error reading script file");
-    let script = ScriptBuf::from_asm(&script_asm).expect("error parsing script");
+    let mut script = String::new();
+    for script_path in args.script_path {
+        let script_asm = std::fs::read_to_string(script_path).expect("error reading script file");
+        script.push_str(&script_asm);
+    }
+    let script = ScriptBuf::from_asm(&script).expect("error parsing script");
     println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
     println!("Script size: {} bytes", script.as_bytes().len());
 
