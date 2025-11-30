@@ -2,6 +2,7 @@ extern crate alloc;
 extern crate core;
 
 use alloc::borrow::Cow;
+use bitcoin::secp256k1;
 use core::cmp;
 
 use bitcoin::consensus::Encodable;
@@ -183,6 +184,8 @@ pub struct Exec {
 
     // runtime statistics
     stats: ExecStats,
+
+    secp: secp256k1::Secp256k1<secp256k1::All>,
 }
 
 impl std::ops::Drop for Exec {
@@ -231,7 +234,7 @@ impl Exec {
         // Otherwise we are leaking memory.
         // *****
 
-        // We box alocate the script to get a static Instructions iterator.
+        // We box allocate the script to get a static Instructions iterator.
         // We will manually drop this allocation in the ops::Drop impl.
         let script = Box::leak(script.into_boxed_script()) as &'static Script;
         let instructions = if opt.require_minimal {
@@ -270,6 +273,8 @@ impl Exec {
                 validation_weight: start_validation_weight,
                 ..Default::default()
             },
+
+            secp: secp256k1::Secp256k1::new(),
         };
         ret.update_stats();
         Ok(ret)

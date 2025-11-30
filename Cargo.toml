@@ -10,7 +10,6 @@ license = "CC0-1.0"
 
 [dependencies]
 bitcoin = "0.32.5"
-lazy_static = "1.4.0"
 serde = { version = "1.0.216", features = ["derive"] }
 
 [dev-dependencies]

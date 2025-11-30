@@ -3,10 +3,6 @@ use bitcoin::sighash::{Annex, EcdsaSighashType, Prevouts, TapSighashType};
 
 use crate::*;
 
-lazy_static::lazy_static! {
-    static ref SECP: secp256k1::Secp256k1<secp256k1::All> = secp256k1::Secp256k1::new();
-}
-
 impl Exec {
     pub fn check_sig_ecdsa(&mut self, sig: &[u8], pk: &[u8], script_code: &[u8]) -> bool {
         let pk = match PublicKey::from_slice(pk) {
@@ -48,7 +44,7 @@ impl Exec {
             unreachable!();
         };
 
-        SECP.verify_ecdsa(&sighash, &sig, &pk).is_ok()
+        self.secp.verify_ecdsa(&sighash, &sig, &pk).is_ok()
     }
 
     /// [pk] should be passed as 32-bytes.
@@ -92,7 +88,7 @@ impl Exec {
             )
             .expect("TODO(stevenroose) seems to only happen if prevout index out of bound");
 
-        if SECP.verify_schnorr(&sig, &sighash.into(), &pk) != Ok(()) {
+        if self.secp.verify_schnorr(&sig, &sighash.into(), &pk) != Ok(()) {
             return Err(ExecError::SchnorrSig);
         }
 
