@@ -32,9 +32,6 @@ pub use stack::Stack;
 #[cfg(test)]
 mod tests;
 
-/// Maximum number of non-push operations per script
-const MAX_OPS_PER_SCRIPT: usize = 201;
-
 /// Maximum number of bytes pushable to the stack
 const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
 
@@ -78,7 +75,7 @@ pub struct Options {
     pub verify_csv: bool,
     /// Verify conditionals are minimally encoded.
     pub verify_minimal_if: bool,
-    /// Enfore a strict limit of 1000 total stack items.
+    /// Enforce a strict limit of 1000 total stack items.
     pub enforce_stack_limit: bool,
 
     pub experimental: Experimental,
@@ -97,13 +94,6 @@ impl Default for Options {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecCtx {
-    Legacy,
-    SegwitV0,
-    Tapscript,
-}
-
 pub struct TxTemplate {
     pub tx: Transaction,
     pub prevouts: Vec<TxOut>,
@@ -120,23 +110,12 @@ pub struct ExecutionResult {
 }
 
 impl ExecutionResult {
-    fn from_final_stack(ctx: ExecCtx, final_stack: Stack) -> ExecutionResult {
+    fn from_final_stack(final_stack: Stack) -> ExecutionResult {
         ExecutionResult {
-            success: match ctx {
-                ExecCtx::Legacy => {
-                    if final_stack.is_empty() {
-                        false
-                    } else {
-                        !(!script::read_scriptbool(&final_stack.last().unwrap()))
-                    }
-                }
-                ExecCtx::SegwitV0 | ExecCtx::Tapscript => {
-                    if final_stack.len() != 1 {
-                        false
-                    } else {
-                        !(!script::read_scriptbool(&final_stack.last().unwrap()))
-                    }
-                }
+            success: if final_stack.len() != 1 {
+                false
+            } else {
+                !(!script::read_scriptbool(&final_stack.last().unwrap()))
             },
             final_stack,
             error: None,
@@ -163,7 +142,6 @@ pub struct ExecStats {
 
 /// Partial execution of a script.
 pub struct Exec {
-    ctx: ExecCtx,
     opt: Options,
     tx: TxTemplate,
     result: Option<ExecutionResult>,
@@ -201,21 +179,18 @@ impl std::ops::Drop for Exec {
 
 impl Exec {
     pub fn new(
-        ctx: ExecCtx,
         opt: Options,
         tx: TxTemplate,
         script: ScriptBuf,
         script_witness: Vec<Vec<u8>>,
     ) -> Result<Exec, Error> {
-        if ctx == ExecCtx::Tapscript {
-            if tx.taproot_annex_scriptleaf.is_none() {
-                return Err(Error::Other("missing taproot tx info in tapscript context"));
-            }
+        if tx.taproot_annex_scriptleaf.is_none() {
+            return Err(Error::Other("missing taproot tx info in tapscript context"));
+        }
 
-            if let Some((_, Some(ref annex))) = tx.taproot_annex_scriptleaf {
-                if annex.first() != Some(&taproot::TAPROOT_ANNEX_PREFIX) {
-                    return Err(Error::Other("invalid annex: missing prefix"));
-                }
+        if let Some((_, Some(ref annex))) = tx.taproot_annex_scriptleaf {
+            if annex.first() != Some(&taproot::TAPROOT_ANNEX_PREFIX) {
+                return Err(Error::Other("invalid annex: missing prefix"));
             }
         }
 
@@ -250,7 +225,6 @@ impl Exec {
         let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
 
         let mut ret = Exec {
-            ctx,
             result: None,
 
             sighashcache: SighashCache::new(tx.tx.clone()),
@@ -282,7 +256,6 @@ impl Exec {
     }
 
     pub fn with_stack(
-        ctx: ExecCtx,
         opt: Options,
         tx: TxTemplate,
         script: ScriptBuf,
@@ -290,7 +263,7 @@ impl Exec {
         stack: Stack,
         altstack: Stack,
     ) -> Result<Exec, Error> {
-        let mut ret = Self::new(ctx, opt, tx, script, script_witness);
+        let mut ret = Self::new(opt, tx, script, script_witness);
         if let Ok(exec) = &mut ret {
             exec.stack = stack;
             exec.altstack = altstack;
@@ -442,7 +415,7 @@ impl Exec {
         let instruction = match self.instructions.next() {
             Some(Ok(i)) => i,
             None => {
-                let res = ExecutionResult::from_final_stack(self.ctx, self.stack.clone());
+                let res = ExecutionResult::from_final_stack(self.stack.clone());
                 self.result = Some(res);
                 return Err(self.result.as_ref().unwrap());
             }
@@ -462,18 +435,8 @@ impl Exec {
             Instruction::Op(op) => {
                 // Some things we do even when we're not executing.
 
-                // Note how OP_RESERVED does not count towards the opcode limit.
-                if (self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0)
-                    && op.to_u8() > OP_PUSHNUM_16.to_u8()
-                {
-                    self.opcode_count += 1;
-                    if self.opcode_count > MAX_OPS_PER_SCRIPT {
-                        return self.fail(ExecError::OpCount);
-                    }
-                }
-
                 match op {
-                    OP_CAT if !self.opt.experimental.op_cat || self.ctx != ExecCtx::Tapscript => {
+                    OP_CAT if !self.opt.experimental.op_cat => {
                         return self.failop(ExecError::DisabledOpcode, op);
                     }
                     OP_SUBSTR | OP_LEFT | OP_RIGHT | OP_INVERT | OP_AND | OP_OR | OP_XOR
@@ -576,20 +539,12 @@ impl Exec {
                     let top = self.stack.topstr(-1)?;
 
                     // Tapscript requires minimal IF/NOTIF inputs as a consensus rule.
-                    if self.ctx == ExecCtx::Tapscript {
-                        // The input argument to the OP_IF and OP_NOTIF opcodes must be either
-                        // exactly 0 (the empty vector) or exactly 1 (the one-byte vector with value 1).
-                        if top.len() > 1 || (top.len() == 1 && top[0] != 1) {
-                            return Err(ExecError::TapscriptMinimalIf);
-                        }
-                    }
-                    // Under segwit v0 only enabled as policy.
-                    if self.opt.verify_minimal_if
-                        && self.ctx == ExecCtx::SegwitV0
-                        && (top.len() > 1 || (top.len() == 1 && top[0] != 1))
-                    {
+                    // The input argument to the OP_IF and OP_NOTIF opcodes must be either
+                    // exactly 0 (the empty vector) or exactly 1 (the one-byte vector with value 1).
+                    if top.len() > 1 || (top.len() == 1 && top[0] != 1) {
                         return Err(ExecError::TapscriptMinimalIf);
                     }
+
                     let b = if op == OP_NOTIF {
                         !script::read_scriptbool(&top)
                     } else {
@@ -789,7 +744,7 @@ impl Exec {
                 self.stack.push(x2);
             }
 
-            OP_CAT if self.opt.experimental.op_cat && self.ctx == ExecCtx::Tapscript => {
+            OP_CAT if self.opt.experimental.op_cat => {
                 // (x1 x2 -- x1|x2)
                 self.stack.needn(2)?;
                 let x2 = self.stack.popstr().unwrap();
@@ -953,9 +908,6 @@ impl Exec {
             }
 
             OP_CHECKSIGADD => {
-                if self.ctx == ExecCtx::Legacy || self.ctx == ExecCtx::SegwitV0 {
-                    return Err(ExecError::BadOpcode);
-                }
                 let sig = self.stack.topstr(-3)?.clone();
                 let mut n = self.stack.topnum(-2, self.opt.require_minimal)?;
                 let pk = self.stack.topstr(-1)?.clone();
