@@ -18,7 +18,7 @@ use bitcoin::Opcode;
 /// assert!(parse_opcode("INVALID").is_err());
 /// ```
 /// Parses a string into a Bitcoin script [`Opcode`].
-pub fn parse_opcode(s: &str) -> Result<Opcode, ()> {
+pub fn parse_opcode(s: &str) -> Result<Opcode, &str> {
     match s {
         // Special cases with aliases
         "OP_0" => Ok(OP_0),
@@ -48,7 +48,7 @@ pub fn parse_opcode(s: &str) -> Result<Opcode, ()> {
             let opcode_name = if s.starts_with("OP_") {
                 s
             } else {
-                &format!("OP_{}", s)
+                &format!("OP_{s}")
             };
 
             match opcode_name {
@@ -298,7 +298,7 @@ pub fn parse_opcode(s: &str) -> Result<Opcode, ()> {
                 "OP_RETURN_254" => Ok(OP_RETURN_254),
                 "OP_INVALIDOPCODE" => Ok(OP_INVALIDOPCODE),
 
-                _ => Err(()),
+                _ => Err("Invalid Opcode"),
             }
         }
     }

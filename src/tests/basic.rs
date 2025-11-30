@@ -1,12 +1,13 @@
 use bitcoin::{hashes::Hash, hex::DisplayHex, ScriptBuf, TapLeafHash, Transaction};
 
-use crate::{Exec, FromAsm, TxTemplate};
+use super::helpers::FromAsm;
+use crate::{Exec, TxTemplate};
 
 #[test]
 fn basic() {
     let script_asm = "OP_IF OP_2 OP_ELSE OP_4 OP_4 OP_CAT OP_ENDIF";
 
-    let script = ScriptBuf::from_asm(&script_asm).expect("error parsing script");
+    let script = ScriptBuf::from_asm(script_asm).expect("error parsing script");
     println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
     println!("Script size: {} bytes", script.as_bytes().len());
 
@@ -38,7 +39,7 @@ fn basic() {
 
         let next = exec.exec_next();
         if next.is_err() {
-            println!("Error {:?}", next);
+            println!("Error {next:?}");
             break;
         }
     }

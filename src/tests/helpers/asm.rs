@@ -9,7 +9,7 @@ use bitcoin::{
     Opcode, ScriptBuf,
 };
 
-use crate::parse_opcode;
+use super::parse_opcode;
 
 /// Trait that something can be parsed from ASM.
 pub trait FromAsm: Sized {
