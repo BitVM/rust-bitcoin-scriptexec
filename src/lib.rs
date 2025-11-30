@@ -10,7 +10,7 @@ use bitcoin::opcodes::{all::*, Opcode};
 use bitcoin::script::{self, Instruction, Instructions, Script, ScriptBuf};
 use bitcoin::sighash::{Annex, Prevouts, SighashCache};
 use bitcoin::taproot::{self, TapLeafHash};
-use bitcoin::transaction::{self, Transaction, TxOut};
+use bitcoin::transaction::{Transaction, TxOut};
 
 mod error;
 pub use error::{Error, ExecError};
@@ -36,13 +36,6 @@ const MAX_STACK_SIZE: usize = 1000;
 /// The default maximum size of scriptints.
 const DEFAULT_MAX_SCRIPTINT_SIZE: usize = 4;
 
-/// If this flag is set, CTxIn::nSequence is NOT interpreted as a
-/// relative lock-time.
-/// It skips SequenceLocks() for any input that has it set (BIP 68).
-/// It fails OP_CHECKSEQUENCEVERIFY/CheckSequence() for any input that has
-/// it set (BIP 112).
-const SEQUENCE_LOCKTIME_DISABLE_FLAG: u32 = 1 << 31;
-
 /// How much weight budget is added to the witness size (Tapscript only, see BIP 342).
 const VALIDATION_WEIGHT_OFFSET: i64 = 50;
 
@@ -64,10 +57,6 @@ pub struct Experimental {
 pub struct Options {
     /// Require data pushes be minimally encoded.
     pub require_minimal: bool, //TODO(stevenroose) double check all fRequireMinimal usage in Core
-    /// Verify OP_CHECKLOCKTIMEVERIFY.
-    pub verify_cltv: bool,
-    /// Verify OP_CHECKSEQUENCEVERIFY.
-    pub verify_csv: bool,
     /// Enforce a strict limit of 1000 total stack items.
     pub enforce_stack_limit: bool,
 
@@ -78,8 +67,6 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             require_minimal: true,
-            verify_cltv: true,
-            verify_csv: true,
             enforce_stack_limit: true,
             experimental: Experimental { op_cat: true },
         }
@@ -284,60 +271,6 @@ impl Exec {
         Err(self.result.as_ref().unwrap())
     }
 
-    fn check_lock_time(&mut self, lock_time: i64) -> bool {
-        use bitcoin::locktime::absolute::LockTime;
-        let lock_time = match lock_time.try_into() {
-            Ok(l) => LockTime::from_consensus(l),
-            Err(_) => return false,
-        };
-
-        match (lock_time, self.tx.tx.lock_time) {
-            (LockTime::Blocks(h1), LockTime::Blocks(h2)) if h1 > h2 => return false,
-            (LockTime::Seconds(t1), LockTime::Seconds(t2)) if t1 > t2 => return false,
-            (LockTime::Blocks(_), LockTime::Seconds(_)) => return false,
-            (LockTime::Seconds(_), LockTime::Blocks(_)) => return false,
-            _ => {}
-        }
-
-        if self.tx.tx.input[self.tx.input_idx].sequence.is_final() {
-            return false;
-        }
-
-        true
-    }
-
-    fn check_sequence(&mut self, sequence: i64) -> bool {
-        use bitcoin::locktime::relative::LockTime;
-
-        // Fail if the transaction's version number is not set high
-        // enough to trigger BIP 68 rules.
-        if self.tx.tx.version < transaction::Version::TWO {
-            return false;
-        }
-
-        let input_sequence = self.tx.tx.input[self.tx.input_idx].sequence;
-        let input_lock_time = match input_sequence.to_relative_lock_time() {
-            Some(lt) => lt,
-            None => return false,
-        };
-
-        let lock_time =
-            match LockTime::from_consensus(u32::try_from(sequence).expect("sequence is u32")) {
-                Ok(lt) => lt,
-                Err(_) => return false,
-            };
-
-        match (lock_time, input_lock_time) {
-            (LockTime::Blocks(h1), LockTime::Blocks(h2)) if h1 > h2 => return false,
-            (LockTime::Time(t1), LockTime::Time(t2)) if t1 > t2 => return false,
-            (LockTime::Blocks(_), LockTime::Time(_)) => return false,
-            (LockTime::Time(_), LockTime::Blocks(_)) => return false,
-            _ => {}
-        }
-
-        true
-    }
-
     fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
         if !sig.is_empty() {
             self.validation_weight -= VALIDATION_WEIGHT_PER_SIGOP_PASSED;
@@ -485,58 +418,9 @@ impl Exec {
 
             //
             // Control
-            OP_NOP => {}
-
-            OP_CLTV if self.opt.verify_cltv => {
-                let top = self.stack.topstr(-1)?;
-
-                // Note that elsewhere numeric opcodes are limited to
-                // operands in the range -2**31+1 to 2**31-1, however it is
-                // legal for opcodes to produce results exceeding that
-                // range. This limitation is implemented by CScriptNum's
-                // default 4-byte limit.
-                //
-                // If we kept to that limit we'd have a year 2038 problem,
-                // even though the nLockTime field in transactions
-                // themselves is uint32 which only becomes meaningless
-                // after the year 2106.
-                //
-                // Thus as a special case we tell CScriptNum to accept up
-                // to 5-byte bignums, which are good until 2**39-1, well
-                // beyond the 2**32-1 limit of the nLockTime field itself.
-                let n = read_scriptint(&top, 5, self.opt.require_minimal)?;
-
-                if n < 0 {
-                    return Err(ExecError::NegativeLocktime);
-                }
-
-                if !self.check_lock_time(n) {
-                    return Err(ExecError::UnsatisfiedLocktime);
-                }
-            }
-            OP_CLTV => {} // otherwise nop
-
-            OP_CSV if self.opt.verify_csv => {
-                let top = self.stack.topstr(-1)?;
-
-                // nSequence, like nLockTime, is a 32-bit unsigned integer
-                // field. See the comment in CHECKLOCKTIMEVERIFY regarding
-                // 5-byte numeric operands.
-                let n = read_scriptint(&top, 5, self.opt.require_minimal)?;
-
-                if n < 0 {
-                    return Err(ExecError::NegativeLocktime);
-                }
-
-                //TODO(stevenroose) check this logic
-                //TODO(stevenroose) check if this cast is ok
-                if n & SEQUENCE_LOCKTIME_DISABLE_FLAG as i64 == 0 && !self.check_sequence(n) {
-                    return Err(ExecError::UnsatisfiedLocktime);
-                }
-            }
-            OP_CSV => {} // otherwise nop
-
-            OP_NOP1 | OP_NOP4 | OP_NOP5 | OP_NOP6 | OP_NOP7 | OP_NOP8 | OP_NOP9 | OP_NOP10 => {
+            // OP_CTLV and OP_CSV are noop
+            OP_NOP | OP_NOP1 | OP_CLTV | OP_CSV | OP_NOP4 | OP_NOP5 | OP_NOP6 | OP_NOP7
+            | OP_NOP8 | OP_NOP9 | OP_NOP10 => {
                 // nops
             }
 
