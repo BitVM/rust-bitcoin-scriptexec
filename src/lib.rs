@@ -57,8 +57,6 @@ pub struct Experimental {
 pub struct Options {
     /// Require data pushes be minimally encoded.
     pub require_minimal: bool, //TODO(stevenroose) double check all fRequireMinimal usage in Core
-    /// Enforce a strict limit of 1000 total stack items.
-    pub enforce_stack_limit: bool,
 
     pub experimental: Experimental,
 }
@@ -67,7 +65,6 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             require_minimal: true,
-            enforce_stack_limit: true,
             experimental: Experimental { op_cat: true },
         }
     }
@@ -817,7 +814,7 @@ impl Exec {
             _ => return Err(ExecError::BadOpcode),
         }
 
-        if self.opt.enforce_stack_limit && self.stack.len() + self.altstack.len() > MAX_STACK_SIZE {
+        if self.stack.len() + self.altstack.len() > MAX_STACK_SIZE {
             return Err(ExecError::StackSize);
         }
 
