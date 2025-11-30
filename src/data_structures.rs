@@ -23,12 +23,6 @@ pub fn scriptint_vec(n: i64) -> Vec<u8> {
 }
 
 impl StackEntry {
-    #[deprecated(note = "Use `as_bytes` to avoid the borrow")]
-    // This assumes the StackEntry fit in a u32 and will pad it with leading zeros to 4 bytes.
-    pub fn serialize_to_bytes(self) -> Vec<u8> {
-        self.as_bytes()
-    }
-
     // This assumes the StackEntry fit in a u32 and will pad it with leading zeros to 4 bytes.
     pub fn as_bytes(&self) -> Vec<u8> {
         match self {
@@ -218,17 +212,6 @@ impl Stack {
             StackEntry::Num(v) => scriptint_vec(*v),
             StackEntry::StrRef(v) => v.borrow().to_vec(),
         }
-    }
-
-    #[deprecated(note = "Use `as_v8_vec` to be symmetry")]
-    // Will serialize the stack into a series of bytes such that every 4 bytes correspond to a u32
-    // (or smaller) stack entry (smaller entries are padded with 0).
-    pub fn serialize_to_bytes(self) -> Vec<u8> {
-        let mut bytes = vec![];
-        for entry in self.0 {
-            bytes.extend(entry.as_bytes());
-        }
-        bytes
     }
 
     pub fn from_u8_vec(v: Vec<Vec<u8>>) -> Self {
