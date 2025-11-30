@@ -69,7 +69,7 @@ impl Stack {
         }
     }
 
-    pub fn topnum(&self, offset: isize, require_minimal: bool) -> Result<i64, ExecError> {
+    pub fn topnum(&self, offset: isize) -> Result<i64, ExecError> {
         let entry = self.top(offset)?;
         match entry {
             StackEntry::Num(v) => {
@@ -79,7 +79,7 @@ impl Stack {
                     Err(ExecError::ScriptIntNumericOverflow)
                 }
             }
-            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
+            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4)?),
         }
     }
 
@@ -123,7 +123,7 @@ impl Stack {
         }
     }
 
-    pub fn popnum(&mut self, require_minimal: bool) -> Result<i64, ExecError> {
+    pub fn popnum(&mut self) -> Result<i64, ExecError> {
         let entry = self.0.pop().ok_or(ExecError::InvalidStackOperation)?;
         match entry {
             StackEntry::Num(v) => {
@@ -133,7 +133,7 @@ impl Stack {
                     Err(ExecError::ScriptIntNumericOverflow)
                 }
             }
-            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4, require_minimal)?),
+            StackEntry::StrRef(v) => Ok(read_scriptint(v.borrow().as_slice(), 4)?),
         }
     }
 
@@ -196,7 +196,7 @@ impl std::fmt::Display for Stack {
                     let bytes = v.borrow();
                     if bytes.is_empty() {
                         write!(f, "0")?;
-                    } else if let Ok(num) = read_scriptint(bytes.as_slice(), 4, false) {
+                    } else if let Ok(num) = read_scriptint(bytes.as_slice(), 4) {
                         // Try to interpret as scriptint for cleaner display
                         write!(f, "{}", num)?;
                     } else {

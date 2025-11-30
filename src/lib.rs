@@ -33,9 +33,6 @@ const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
 /// Maximum number of values on script interpreter stack
 const MAX_STACK_SIZE: usize = 1000;
 
-/// The default maximum size of scriptints.
-const DEFAULT_MAX_SCRIPTINT_SIZE: usize = 4;
-
 /// How much weight budget is added to the witness size (Tapscript only, see BIP 342).
 const VALIDATION_WEIGHT_OFFSET: i64 = 50;
 
@@ -55,16 +52,12 @@ pub struct Experimental {
 /// Used to fine-tune different variables during execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Options {
-    /// Require data pushes be minimally encoded.
-    pub require_minimal: bool, //TODO(stevenroose) double check all fRequireMinimal usage in Core
-
     pub experimental: Experimental,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
-            require_minimal: true,
             experimental: Experimental { op_cat: true },
         }
     }
@@ -152,11 +145,7 @@ impl Exec {
 
         // We want to make sure the script is valid so we don't have to throw parsing errors
         // while executing.
-        let instructions = if opt.require_minimal {
-            script.instructions_minimal()
-        } else {
-            script.instructions()
-        };
+        let instructions = script.instructions_minimal();
         if let Some(err) = instructions.clone().find_map(|res| res.err()) {
             return Err(Error::InvalidScript(err));
         }
@@ -169,11 +158,7 @@ impl Exec {
         // We box allocate the script to get a static Instructions iterator.
         // We will manually drop this allocation in the ops::Drop impl.
         let script = Box::leak(script.into_boxed_script()) as &'static Script;
-        let instructions = if opt.require_minimal {
-            script.instructions_minimal()
-        } else {
-            script.instructions()
-        };
+        let instructions = script.instructions_minimal();
 
         //TODO(stevenroose) make this more efficient
         let witness_size =
@@ -589,7 +574,7 @@ impl Exec {
             OP_PICK | OP_ROLL => {
                 // (xn ... x2 x1 x0 n - xn ... x2 x1 x0 xn)
                 // (xn ... x2 x1 x0 n - ... x2 x1 x0 xn)
-                let x = self.stack.topnum(-1, self.opt.require_minimal)?;
+                let x = self.stack.topnum(-1)?;
                 if x < 0 || x >= self.stack.len() as i64 {
                     return Err(ExecError::InvalidStackOperation);
                 }
@@ -670,7 +655,7 @@ impl Exec {
             // Numeric
             OP_1ADD | OP_1SUB | OP_NEGATE | OP_ABS | OP_NOT | OP_0NOTEQUAL => {
                 // (in -- out)
-                let x = self.stack.topnum(-1, self.opt.require_minimal)?;
+                let x = self.stack.topnum(-1)?;
                 let res = match op {
                     OP_1ADD => x
                         .checked_add(1)
@@ -702,8 +687,8 @@ impl Exec {
             | OP_MIN
             | OP_MAX => {
                 // (x1 x2 -- out)
-                let x1 = self.stack.topnum(-2, self.opt.require_minimal)?;
-                let x2 = self.stack.topnum(-1, self.opt.require_minimal)?;
+                let x1 = self.stack.topnum(-2)?;
+                let x2 = self.stack.topnum(-1)?;
                 let res = match op {
                     OP_ADD => x1
                         .checked_add(x2)
@@ -735,9 +720,9 @@ impl Exec {
 
             OP_WITHIN => {
                 // (x min max -- out)
-                let x1 = self.stack.topnum(-3, self.opt.require_minimal)?;
-                let x2 = self.stack.topnum(-2, self.opt.require_minimal)?;
-                let x3 = self.stack.topnum(-1, self.opt.require_minimal)?;
+                let x1 = self.stack.topnum(-3)?;
+                let x2 = self.stack.topnum(-2)?;
+                let x3 = self.stack.topnum(-1)?;
                 self.stack.popn(3).unwrap();
                 let res = x2 <= x1 && x1 < x3;
                 let item = if res { 1 } else { 0 };
@@ -796,7 +781,7 @@ impl Exec {
 
             OP_CHECKSIGADD => {
                 let sig = self.stack.topstr(-3)?.clone();
-                let mut n = self.stack.topnum(-2, self.opt.require_minimal)?;
+                let mut n = self.stack.topnum(-2)?;
                 let pk = self.stack.topstr(-1)?.clone();
                 let res = self.check_sig(&sig, &pk)?;
                 self.stack.popn(3).unwrap();
@@ -824,11 +809,11 @@ impl Exec {
 
 /// Decodes an integer in script format with flexible size limit.
 ///
-/// Note that in the majority of cases, you will want to use either
-/// [`read_scriptint`] or [`read_scriptint_non_minimal`] instead.
+/// Note that in the majority of cases, you will want to use
+/// [`read_scriptint`] instead.
 ///
 /// Panics if max_size exceeds 8.
-pub fn read_scriptint_size(v: &[u8], max_size: usize, minimal: bool) -> Result<i64, script::Error> {
+pub fn read_scriptint_size(v: &[u8], max_size: usize) -> Result<i64, script::Error> {
     assert!(max_size <= 8);
 
     if v.len() > max_size {
@@ -839,7 +824,8 @@ pub fn read_scriptint_size(v: &[u8], max_size: usize, minimal: bool) -> Result<i
         return Ok(0);
     }
 
-    if minimal {
+    // require minimal
+    {
         let last = match v.last() {
             Some(last) => last,
             None => return Ok(0),
@@ -876,21 +862,12 @@ fn scriptint_parse(v: &[u8]) -> i64 {
     ret
 }
 
-fn read_scriptint(item: &[u8], size: usize, minimal: bool) -> Result<i64, ExecError> {
-    read_scriptint_size(item, size, minimal).map_err(|e| match e {
+fn read_scriptint(item: &[u8], size: usize) -> Result<i64, ExecError> {
+    read_scriptint_size(item, size).map_err(|e| match e {
         script::Error::NonMinimalPush => ExecError::MinimalData,
         // only possible if size is 4 or lower
         script::Error::NumericOverflow => ExecError::ScriptIntNumericOverflow,
         // should never happen
         _ => unreachable!(),
     })
-}
-
-/// Decodes an integer in script format without non-minimal error.
-///
-/// The overflow error for slices over 4 bytes long is still there.
-/// See [`read_scriptint`] for a description of some subtleties of
-/// this function.
-pub fn read_scriptint_non_minimal(v: &[u8]) -> Result<i64, script::Error> {
-    read_scriptint_size(v, DEFAULT_MAX_SCRIPTINT_SIZE, false)
 }
