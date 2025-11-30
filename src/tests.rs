@@ -4,7 +4,7 @@ use crate::{Exec, FromAsm, TxTemplate};
 
 #[test]
 fn basic() {
-    let script_asm = "OP_0 OP_IF OP_2 OP_ELSE OP_4 OP_4 OP_CAT OP_ENDIF";
+    let script_asm = "OP_IF OP_2 OP_ELSE OP_4 OP_4 OP_CAT OP_ENDIF";
 
     let script = ScriptBuf::from_asm(&script_asm).expect("error parsing script");
     println!("Script in hex: {}", script.as_bytes().to_lower_hex_string());
@@ -23,7 +23,7 @@ fn basic() {
             taproot_annex_scriptleaf: Some((TapLeafHash::all_zeros(), None)),
         },
         script,
-        vec![],
+        vec![vec![]],
     )
     .expect("error creating exec");
 
