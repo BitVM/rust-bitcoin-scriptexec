@@ -116,22 +116,6 @@ impl ExecutionResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct ExecStats {
-    /// The highest number of stack items occurred during execution.
-    /// This counts both the stack and the altstack.
-    pub max_nb_stack_items: usize,
-
-    /// The number of opcodes executed, plus an additional one
-    /// per signature in CHECKMULTISIG.
-    pub opcode_count: usize,
-
-    /// The validation weight execution started with.
-    pub start_validation_weight: i64,
-    /// The current remaining validation weight.
-    pub validation_weight: i64,
-}
-
 /// Partial execution of a script.
 pub struct Exec {
     opt: Options,
@@ -150,11 +134,7 @@ pub struct Exec {
     // OP_CODESEPARATOR is encountered.
     script_code: &'static Script,
 
-    opcode_count: usize,
     validation_weight: i64,
-
-    // runtime statistics
-    stats: ExecStats,
 
     secp: secp256k1::Secp256k1<secp256k1::All>,
 }
@@ -216,7 +196,7 @@ impl Exec {
             Encodable::consensus_encode(&script_witness, &mut bitcoin::io::sink()).unwrap();
         let start_validation_weight = VALIDATION_WEIGHT_OFFSET + witness_size as i64;
 
-        let mut ret = Exec {
+        Ok(Exec {
             result: None,
 
             sighashcache: SighashCache::new(tx.tx.clone()),
@@ -227,7 +207,6 @@ impl Exec {
             //TODO(stevenroose) does this need to be reversed?
             stack: Stack::from_u8_vec(script_witness),
             altstack: Stack::new(),
-            opcode_count: 0,
             validation_weight: start_validation_weight,
             last_codeseparator_pos: None,
             script_code: script,
@@ -235,16 +214,8 @@ impl Exec {
             opt,
             tx,
 
-            stats: ExecStats {
-                start_validation_weight,
-                validation_weight: start_validation_weight,
-                ..Default::default()
-            },
-
             secp: secp256k1::Secp256k1::new(),
-        };
-        ret.update_stats();
-        Ok(ret)
+        })
     }
 
     pub fn with_stack(
@@ -285,10 +256,6 @@ impl Exec {
 
     pub fn altstack(&self) -> &Stack {
         &self.altstack
-    }
-
-    pub fn stats(&self) -> &ExecStats {
-        &self.stats
     }
 
     ///////////////
@@ -498,7 +465,6 @@ impl Exec {
             }
         }
 
-        self.update_stats();
         Ok(())
     }
 
@@ -972,18 +938,6 @@ impl Exec {
         }
 
         Ok(())
-    }
-
-    ////////////////
-    // STATISTICS //
-    ////////////////
-
-    fn update_stats(&mut self) {
-        let stack_items = self.stack.len() + self.altstack.len();
-        self.stats.max_nb_stack_items = cmp::max(self.stats.max_nb_stack_items, stack_items);
-
-        self.stats.opcode_count = self.opcode_count;
-        self.stats.validation_weight = self.validation_weight;
     }
 }
 
