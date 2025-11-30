@@ -128,7 +128,6 @@ impl std::ops::Drop for Exec {
 
 impl Exec {
     pub fn new(
-        opt: Options,
         tx: TxTemplate,
         script: ScriptBuf,
         script_witness: Vec<Vec<u8>>,
@@ -180,7 +179,7 @@ impl Exec {
             last_codeseparator_pos: None,
             script_code: script,
 
-            opt,
+            opt: Default::default(),
             tx,
 
             secp: secp256k1::Secp256k1::new(),
@@ -188,14 +187,13 @@ impl Exec {
     }
 
     pub fn with_stack(
-        opt: Options,
         tx: TxTemplate,
         script: ScriptBuf,
         script_witness: Vec<Vec<u8>>,
         stack: Stack,
         altstack: Stack,
     ) -> Result<Exec, Error> {
-        let mut ret = Self::new(opt, tx, script, script_witness);
+        let mut ret = Self::new(tx, script, script_witness);
         if let Ok(exec) = &mut ret {
             exec.stack = stack;
             exec.altstack = altstack;

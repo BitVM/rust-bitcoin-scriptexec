@@ -1,6 +1,6 @@
 use bitcoin::{hashes::Hash, hex::DisplayHex, ScriptBuf, TapLeafHash, Transaction};
 
-use crate::{Exec, FromAsm, Options, TxTemplate};
+use crate::{Exec, FromAsm, TxTemplate};
 
 #[test]
 fn basic() {
@@ -11,7 +11,6 @@ fn basic() {
     println!("Script size: {} bytes", script.as_bytes().len());
 
     let mut exec = Exec::new(
-        Options::default(),
         TxTemplate {
             tx: Transaction {
                 version: bitcoin::transaction::Version::TWO,
