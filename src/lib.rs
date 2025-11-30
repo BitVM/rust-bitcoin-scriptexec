@@ -27,8 +27,8 @@ pub use asm::{FromAsm, FromAsmError, FromAsmErrorKind};
 pub mod parse;
 pub use parse::parse_opcode;
 
-mod data_structures;
-pub use data_structures::Stack;
+mod stack;
+pub use stack::Stack;
 
 #[cfg(test)]
 mod tests;
