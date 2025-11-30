@@ -30,6 +30,9 @@ pub use parse::parse_opcode;
 mod data_structures;
 pub use data_structures::Stack;
 
+#[cfg(test)]
+mod tests;
+
 /// Maximum number of non-push operations per script
 const MAX_OPS_PER_SCRIPT: usize = 201;
 
@@ -144,7 +147,6 @@ impl ExecutionResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExecStats {
     /// The highest number of stack items occurred during execution.
     /// This counts both the stack and the altstack.

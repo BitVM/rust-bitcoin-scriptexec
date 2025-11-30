@@ -104,11 +104,7 @@ fn try_parse_raw_hex(hex: &str, buf: &mut Vec<u8>) -> bool {
 /// Create an iterator over instruction words and their position in the file.
 fn iter_words(asm: &str) -> impl Iterator<Item = ((usize, usize), &str)> {
     asm.lines().enumerate().flat_map(|(line_idx, line)| {
-        let content = line.split("#")
-            .next()
-            .unwrap().split("//")
-            .next()
-            .unwrap();
+        let content = line.split("#").next().unwrap().split("//").next().unwrap();
         content
             .split_whitespace()
             .enumerate()
