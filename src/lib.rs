@@ -68,8 +68,6 @@ pub struct Options {
     pub verify_cltv: bool,
     /// Verify OP_CHECKSEQUENCEVERIFY.
     pub verify_csv: bool,
-    /// Verify conditionals are minimally encoded.
-    pub verify_minimal_if: bool,
     /// Enforce a strict limit of 1000 total stack items.
     pub enforce_stack_limit: bool,
 
@@ -82,7 +80,6 @@ impl Default for Options {
             require_minimal: true,
             verify_cltv: true,
             verify_csv: true,
-            verify_minimal_if: true,
             enforce_stack_limit: true,
             experimental: Experimental { op_cat: true },
         }
