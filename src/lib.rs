@@ -15,17 +15,20 @@ use bitcoin::transaction::{Transaction, TxOut};
 mod error;
 pub use error::{Error, ExecError};
 
-pub mod asm;
-pub use asm::{FromAsm, FromAsmError, FromAsmErrorKind};
-
-pub mod parse;
-pub use parse::parse_opcode;
-
 mod stack;
 pub use stack::{ConditionStack, Stack};
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    mod basic;
+    mod helpers {
+        mod asm;
+        mod parse;
+
+        pub use asm::*;
+        pub use parse::parse_opcode;
+    }
+}
 
 /// Maximum number of bytes pushable to the stack
 const MAX_SCRIPT_ELEMENT_SIZE: usize = 520;
@@ -63,7 +66,7 @@ impl ExecutionResult {
             success: if final_stack.len() != 1 {
                 false
             } else {
-                !(!script::read_scriptbool(&final_stack.last().unwrap()))
+                script::read_scriptbool(&final_stack.last().unwrap())
             },
             final_stack,
             error: None,
@@ -149,7 +152,7 @@ impl Exec {
             script,
             instructions,
             current_position: 0,
-            cond_stack: ConditionStack::new(),
+            cond_stack: ConditionStack::default(),
             //TODO(stevenroose) does this need to be reversed?
             stack: Stack::from_u8_vec(script_witness),
             altstack: Stack::new(),

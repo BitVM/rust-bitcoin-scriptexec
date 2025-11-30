@@ -145,7 +145,7 @@ impl Stack {
         self.0.remove(v);
     }
 
-    pub fn iter_str(&self) -> Map<Iter<StackEntry>, fn(&StackEntry) -> Vec<u8>> {
+    pub fn iter_str(&self) -> StackStrIter {
         self.0.iter().map(|v| match v {
             StackEntry::Num(v) => scriptint_vec(*v),
             StackEntry::StrRef(v) => v.borrow().to_vec(),
@@ -172,6 +172,8 @@ impl Stack {
     }
 }
 
+type StackStrIter<'a> = Map<Iter<'a, StackEntry>, fn(&'a StackEntry) -> Vec<u8>>;
+
 impl PartialEq for Stack {
     fn eq(&self, other: &Self) -> bool {
         self.0.len() == other.0.len()
@@ -190,7 +192,7 @@ impl std::fmt::Display for Stack {
         while let Some(entry) = iter.next() {
             match entry {
                 StackEntry::Num(n) => {
-                    write!(f, "{}", n)?;
+                    write!(f, "{n}")?;
                 }
                 StackEntry::StrRef(v) => {
                     let bytes = v.borrow();
@@ -198,11 +200,11 @@ impl std::fmt::Display for Stack {
                         write!(f, "0")?;
                     } else if let Ok(num) = read_scriptint(bytes.as_slice(), 4) {
                         // Try to interpret as scriptint for cleaner display
-                        write!(f, "{}", num)?;
+                        write!(f, "{num}")?;
                     } else {
                         // Display as raw hex (no 0x prefix, matching Bitcoin Script ASM)
                         for byte in bytes.iter() {
-                            write!(f, "{:02x}", byte)?;
+                            write!(f, "{byte:02x}")?;
                         }
                     }
                 }
@@ -293,5 +295,11 @@ impl ConditionStack {
             }
             true
         }
+    }
+}
+
+impl Default for ConditionStack {
+    fn default() -> Self {
+        Self::new()
     }
 }
