@@ -12,12 +12,6 @@ use bitcoin::sighash::SighashCache;
 use bitcoin::taproot::{self, TapLeafHash};
 use bitcoin::transaction::{self, Transaction, TxOut};
 
-#[cfg(feature = "serde")]
-use serde;
-
-#[macro_use]
-mod macros;
-
 mod utils;
 use utils::ConditionStack;
 
@@ -31,11 +25,6 @@ pub use asm::{FromAsm, FromAsmError, FromAsmErrorKind};
 
 pub mod parse;
 pub use parse::parse_opcode;
-
-#[cfg(feature = "json")]
-pub mod json;
-#[cfg(feature = "wasm")]
-mod wasm;
 
 mod data_structures;
 pub use data_structures::Stack;
