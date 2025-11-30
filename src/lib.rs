@@ -1,7 +1,6 @@
 extern crate alloc;
 extern crate core;
 
-use alloc::borrow::Cow;
 use bitcoin::secp256k1;
 use core::cmp;
 
@@ -407,33 +406,7 @@ impl Exec {
         true
     }
 
-    fn check_sig_pre_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
-        //TODO(stevenroose) somehow sigops limit should be checked somewhere
-
-        // Drop the signature in pre-segwit scripts but not segwit scripts
-        let mut scriptcode = Cow::Borrowed(self.script_code.as_bytes());
-        if self.ctx == ExecCtx::Legacy {
-            let mut i = 0;
-            while i < scriptcode.len() - sig.len() {
-                if &scriptcode[i..i + sig.len()] == sig {
-                    scriptcode.to_mut().drain(i..i + sig.len());
-                } else {
-                    i += 1;
-                }
-            }
-        }
-
-        //TODO(stevenroose) the signature and pk encoding checks we use here
-        // might not be exactly identical to Core's
-
-        if self.ctx == ExecCtx::SegwitV0 && pk.len() == 65 {
-            return Err(ExecError::WitnessPubkeyType);
-        }
-
-        Ok(self.check_sig_ecdsa(sig, pk, &scriptcode))
-    }
-
-    fn check_sig_tap(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
+    fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
         if !sig.is_empty() {
             self.validation_weight -= VALIDATION_WEIGHT_PER_SIGOP_PASSED;
             if self.validation_weight < 0 {
@@ -452,13 +425,6 @@ impl Exec {
             }
         } else {
             Ok(true)
-        }
-    }
-
-    fn check_sig(&mut self, sig: &[u8], pk: &[u8]) -> Result<bool, ExecError> {
-        match self.ctx {
-            ExecCtx::Legacy | ExecCtx::SegwitV0 => self.check_sig_pre_tap(sig, pk),
-            ExecCtx::Tapscript => self.check_sig_tap(sig, pk),
         }
     }
 
