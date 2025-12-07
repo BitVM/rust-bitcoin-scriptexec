@@ -331,6 +331,10 @@ impl Exec {
         &self.stats
     }
 
+    pub fn cond_stack(&self) -> &ConditionStack {
+        &self.cond_stack
+    }
+
     ///////////////
     // UTILITIES //
     ///////////////
