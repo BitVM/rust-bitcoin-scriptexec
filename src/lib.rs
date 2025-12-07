@@ -480,6 +480,9 @@ impl Exec {
         let instruction = match self.instructions.next() {
             Some(Ok(i)) => i,
             None => {
+                if !self.cond_stack.is_empty() {
+                    return self.fail(ExecError::UnbalancedConditional);
+                }
                 let res = ExecutionResult::from_final_stack(self.ctx, self.stack.clone());
                 self.result = Some(res);
                 return Err(self.result.as_ref().unwrap());

@@ -35,6 +35,10 @@ impl ConditionStack {
         self.first_false_pos == Self::NO_FALSE
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+
     pub fn push(&mut self, v: bool) {
         if self.first_false_pos == Self::NO_FALSE && !v {
             // The stack consists of all true values, and a false is added.
