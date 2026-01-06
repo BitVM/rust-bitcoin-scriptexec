@@ -533,6 +533,13 @@ impl Exec {
             }
         }
 
+        // in tapscript, we count opcodes regardless of whether or not they are executed. Opcodes
+        // that push data count as 1 instruction regardless of data length. This  is used for
+        // OP_CODESEPARATOR.
+        if self.ctx == ExecCtx::Tapscript {
+            self.opcode_count += 1;
+        }
+
         self.update_stats();
         Ok(())
     }
@@ -972,7 +979,13 @@ impl Exec {
 
             OP_CODESEPARATOR => {
                 // Store this CODESEPARATOR position and update the scriptcode.
-                self.last_codeseparator_pos = Some(self.current_position as u32);
+                let new_pos = if self.ctx == ExecCtx::Tapscript {
+                    self.opcode_count as u32
+                } else {
+                    self.current_position as u32
+                };
+                self.last_codeseparator_pos = Some(new_pos);
+                
                 self.script_code = &self.script[self.current_position..];
             }
 
