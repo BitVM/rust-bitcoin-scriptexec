@@ -18,7 +18,7 @@ good insight into the internals of the execution in a step-wise manner.
 
 ## CLI
 
-You can simply use `cargo run` or build/intall the binary as follows:
+You can simply use `cargo run` or build/install the binary as follows:
 
 ```
 # to build in debug mode
@@ -42,9 +42,9 @@ $ cargo run -- <script.bs>
 
 ## WASM
 
-There are wasm bindings provided. For API documentation, see the `src/wasm.rs`a file.
+There are wasm bindings provided. For API documentation, see the `src/wasm.rs` file.
 
-To build the WASM bindings, [install wasm-pack](https://rustwasm.github.io/wasm-pack/installer/)
+To build the WASM bindings, [install wasm-pack](https://drager.github.io/wasm-pack/)
 and then run the following script:
 
 ```
